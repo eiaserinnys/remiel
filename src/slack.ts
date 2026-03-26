@@ -14,11 +14,8 @@ interface SlackMessage {
   thread_ts?: string;
 }
 
-// Track recent response timestamps for frequency-aware intervention probability
+// Track recent response timestamps for frequency hint injection
 const recentResponses: number[] = [];
-
-const BURST_FLOOR = 3;
-const BURST_CEIL = 7;
 
 function countRecentResponses(windowMs = 30 * 60 * 1000): number {
   const cutoff = Date.now() - windowMs;
@@ -26,22 +23,6 @@ function countRecentResponses(windowMs = 30 * 60 * 1000): number {
     recentResponses.shift();
   }
   return recentResponses.length;
-}
-
-function interventionProbability(recentCount: number): number {
-  if (recentCount >= BURST_CEIL) return 0.0;
-
-  if (recentCount < BURST_FLOOR) {
-    const base = 0.88 - recentCount * 0.04;
-    const jitter = 0.8 + Math.random() * 0.4;
-    return Math.min(1.0, base * jitter);
-  }
-
-  // soft wall between FLOOR and CEIL: quadratic decay
-  const t = (recentCount - BURST_FLOOR) / (BURST_CEIL - BURST_FLOOR);
-  const base = 0.8 * Math.pow(1 - t, 2);
-  const jitter = 0.8 + Math.random() * 0.4;
-  return Math.max(0.0, base * jitter);
 }
 
 async function fetchChannelContext(app: App, channelId: string): Promise<string> {
@@ -101,12 +82,10 @@ export function createSlackApp(config: Config): App {
       }
     }
 
-    // [2] Frequency-aware intervention probability gating
+    // [2] Inject frequency hint for Claude's SKIP judgment
     const recentCount = countRecentResponses();
-    const prob = interventionProbability(recentCount);
-    if (Math.random() > prob) {
-      console.log(`[Bot] Suppressed by frequency gate (count=${recentCount}, prob=${prob.toFixed(2)})`);
-      return;
+    if (recentCount > 0) {
+      preamble += `[레미엘 최근 30분 발언 횟수: ${recentCount}회]\n`;
     }
 
     const prompt = preamble + `[지침: 자신(레미엘)을 부르는 메시지가 아니면 반드시 [SKIP]으로만 응답한다.]\n` + formatPrompt(
