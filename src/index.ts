@@ -2,6 +2,7 @@ import "dotenv/config";
 import { loadConfig } from "./config.js";
 import { createSlackApp } from "./slack.js";
 import { TimingLogger } from "./timing.js";
+import { DelegationManager } from "./delegation.js";
 
 async function main() {
   const config = loadConfig();
@@ -14,7 +15,22 @@ async function main() {
   const timingLogger = new TimingLogger(config.workspaceDir);
   await timingLogger.initialize();
 
-  const app = createSlackApp(config, timingLogger);
+  const delegationManager =
+    config.soulstreamUrl && config.soulstreamToken && config.soulstreamAgentId
+      ? new DelegationManager(
+          config.soulstreamUrl,
+          config.soulstreamToken,
+          config.soulstreamAgentId,
+        )
+      : null;
+
+  if (delegationManager) {
+    console.log(`[Remiel] Delegation enabled (soulstream: ${config.soulstreamUrl})`);
+  } else {
+    console.log(`[Remiel] Delegation disabled (SOULSTREAM_URL/TOKEN/AGENT_ID not set)`);
+  }
+
+  const app = createSlackApp(config, timingLogger, delegationManager);
   await app.start();
 
   console.log(`[Remiel] Bot is running!`);
