@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 function requireEnv(key: string): string {
   const value = process.env[key];
   if (!value) {
@@ -13,6 +15,7 @@ export interface Config {
   claudeModel: string;
   workspaceDir: string;
   botName: string;
+  operatorUserId?: string;
 }
 
 export function loadConfig(): Config {
@@ -23,5 +26,6 @@ export function loadConfig(): Config {
     claudeModel: process.env["CLAUDE_MODEL"] ?? "claude-sonnet-4-6",
     workspaceDir: requireEnv("WORKSPACE_DIR"),
     botName: process.env["BOT_NAME"] ?? "레미엘",
+    operatorUserId: process.env["OPERATOR_USER_ID"],
   };
 }

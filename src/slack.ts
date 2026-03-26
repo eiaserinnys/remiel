@@ -12,6 +12,22 @@ interface SlackMessage {
   thread_ts?: string;
 }
 
+async function dmOperator(
+  app: App,
+  config: Config,
+  text: string,
+): Promise<void> {
+  if (!config.operatorUserId) return;
+  try {
+    await app.client.chat.postMessage({
+      channel: config.operatorUserId,
+      text,
+    });
+  } catch {
+    // DM 실패는 조용히 무시
+  }
+}
+
 export function createSlackApp(config: Config): App {
   const app = new App({
     token: config.slackBotToken,
@@ -32,8 +48,18 @@ export function createSlackApp(config: Config): App {
 
     const response = await askClaude(config, prompt);
 
+    if (response.compacted) {
+      console.log(`[Bot] Session compacted — reset`);
+      await dmOperator(app, config, `[pre_compaction] 세션 리셋됨`);
+    }
+
     if (response.skipped) {
       console.log(`[Bot] Skipped`);
+      await dmOperator(
+        app,
+        config,
+        `[SKIP] ${msg.userName}: ${msg.text.slice(0, 100)}`,
+      );
       return;
     }
 
