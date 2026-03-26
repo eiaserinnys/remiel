@@ -40,7 +40,6 @@ export function createSlackApp(config: Config): App {
     await app.client.chat.postMessage({
       channel: msg.channelId,
       text: response.text!,
-      thread_ts: msg.threadTs,
     });
 
     console.log(`[Bot] Replied: ${response.text!.slice(0, 50)}`);
@@ -77,6 +76,9 @@ export function createSlackApp(config: Config): App {
 
     // Filter: ignore bot messages
     if (msg.bot_id) return;
+
+    // Filter: ignore thread replies (main channel only)
+    if (msg.thread_ts) return;
 
     const text = msg.text;
     if (!text || !text.trim()) return;
