@@ -3,6 +3,7 @@ import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
 import { askClaude, isNewSession, formatPrompt } from "./claude.js";
 import { TimingLogger } from "./timing.js";
+import { DelegationManager, parseRequests } from "./delegation.js";
 
 interface SlackMessage {
   channel: string;
@@ -55,14 +56,18 @@ async function fetchChannelContext(app: App, channelId: string): Promise<string>
     const messages = [...(result.messages ?? [])].reverse();
     const lines = messages
       .map((msg) => {
-        const speaker = msg.bot_profile?.name ?? msg.username ?? msg.user ?? "unknown";
+        const userId = msg.user ?? "unknown";
         const text = (msg.text ?? "").trim();
         if (!text) return null;
-        return `[${speaker}]: ${text}`;
+        return `[${channelId}:${msg.ts ?? ""}] <${userId}>: ${text}`;
       })
       .filter((line): line is string => line !== null);
 
-    return lines.join("\n");
+    return [
+      '<channel-history description="아래는 레미엘 채널의 최근 대화입니다.">',
+      lines.join("\n"),
+      "</channel-history>",
+    ].join("\n");
   } catch {
     return "";
   }
@@ -80,7 +85,11 @@ async function dmOperator(app: App, config: Config, text: string): Promise<void>
   }
 }
 
-export function createSlackApp(config: Config, timingLogger: TimingLogger): App {
+export function createSlackApp(
+  config: Config,
+  timingLogger: TimingLogger,
+  delegationManager: DelegationManager | null = null,
+): App {
   const app = new App({
     token: config.slackBotToken,
     appToken: config.slackAppToken,
@@ -110,7 +119,13 @@ export function createSlackApp(config: Config, timingLogger: TimingLogger): App 
       }
     }
 
-    // [2] Frequency-aware SKIP directive injection
+    // [2] Delegation preamble injection
+    const delegationPreamble = delegationManager?.getPreamble() ?? "";
+    if (delegationPreamble) {
+      preamble += delegationPreamble + "\n";
+    }
+
+    // [3] Frequency-aware SKIP directive injection
     const recentCount = countRecentResponses();
     const prob = interventionProbability(recentCount);
     const frequencyGated = Math.random() > prob;
@@ -147,6 +162,22 @@ export function createSlackApp(config: Config, timingLogger: TimingLogger): App 
       );
       await timingLogger.record(timingCtx, dequeuedAt, claudeStartAt, claudeDoneAt, null, true);
       return;
+    }
+
+    // Detect <request> tags and delegate to seosoyoung
+    if (delegationManager && response.text) {
+      const requests = parseRequests(response.text);
+      if (requests.length > 0) {
+        const channelContext = await fetchChannelContext(app, msg.channelId);
+        for (const content of requests) {
+          try {
+            const reqId = await delegationManager.delegate(content, channelContext);
+            console.log(`[Delegation] Created request ${reqId}`);
+          } catch (err) {
+            console.error(`[Delegation] Failed to delegate:`, err);
+          }
+        }
+      }
     }
 
     await app.client.chat.postMessage({

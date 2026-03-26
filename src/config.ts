@@ -16,6 +16,9 @@ export interface Config {
   workspaceDir: string;
   botName: string;
   operatorUserId?: string;
+  soulstreamUrl?: string;
+  soulstreamToken?: string;
+  soulstreamAgentId?: string;
 }
 
 export function loadConfig(): Config {
@@ -27,5 +30,8 @@ export function loadConfig(): Config {
     workspaceDir: requireEnv("WORKSPACE_DIR"),
     botName: process.env["BOT_NAME"] ?? "레미엘",
     operatorUserId: process.env["OPERATOR_USER_ID"],
+    soulstreamUrl: process.env["SOULSTREAM_URL"],
+    soulstreamToken: process.env["SOULSTREAM_TOKEN"],
+    soulstreamAgentId: process.env["SOULSTREAM_AGENT_ID"],
   };
 }
