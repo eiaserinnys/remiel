@@ -1,22 +1,54 @@
 import { App } from "@slack/bolt";
 import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
-import { askClaude, formatPrompt } from "./claude.js";
+import { askClaude, isNewSession, formatPrompt } from "./claude.js";
 
 interface SlackMessage {
   channel: string;
   user?: string;
   bot_id?: string;
+  bot_profile?: { name?: string };
+  username?: string;
   text?: string;
   ts: string;
   thread_ts?: string;
 }
 
-async function dmOperator(
-  app: App,
-  config: Config,
-  text: string,
-): Promise<void> {
+// Track recent response timestamps for frequency-aware SKIP
+const recentResponses: number[] = [];
+
+function countRecentResponses(windowMs = 30 * 60 * 1000): number {
+  const cutoff = Date.now() - windowMs;
+  while (recentResponses.length > 0 && recentResponses[0] < cutoff) {
+    recentResponses.shift();
+  }
+  return recentResponses.length;
+}
+
+async function fetchChannelContext(app: App, channelId: string): Promise<string> {
+  try {
+    const result = await app.client.conversations.history({
+      channel: channelId,
+      limit: 15,
+    });
+
+    const messages = [...(result.messages ?? [])].reverse();
+    const lines = messages
+      .map((msg) => {
+        const speaker = msg.bot_profile?.name ?? msg.username ?? msg.user ?? "unknown";
+        const text = (msg.text ?? "").trim();
+        if (!text) return null;
+        return `[${speaker}]: ${text}`;
+      })
+      .filter((line): line is string => line !== null);
+
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
+
+async function dmOperator(app: App, config: Config, text: string): Promise<void> {
   if (!config.operatorUserId) return;
   try {
     await app.client.chat.postMessage({
@@ -36,7 +68,27 @@ export function createSlackApp(config: Config): App {
   });
 
   const queue = new MessageQueue(async (msg: QueuedMessage) => {
-    const prompt = formatPrompt(
+    // Check before calling askClaude — session may reset inside the call too
+    const needsContext = isNewSession();
+
+    // Build prompt preamble
+    let preamble = "";
+
+    // [1] Channel context on new/reset session
+    if (needsContext) {
+      const history = await fetchChannelContext(app, msg.channelId);
+      if (history) {
+        preamble += `=== 채널 최근 메시지 (세션 시작 컨텍스트) ===\n${history}\n\n`;
+      }
+    }
+
+    // [2] Recent response frequency metadata
+    const recentCount = countRecentResponses();
+    if (recentCount > 0) {
+      preamble += `[레미엘 최근 30분 발언 횟수: ${recentCount}회]\n`;
+    }
+
+    const prompt = preamble + formatPrompt(
       msg.channelId,
       msg.threadTs,
       msg.userId,
@@ -67,6 +119,9 @@ export function createSlackApp(config: Config): App {
       channel: msg.channelId,
       text: response.text!,
     });
+
+    // Record this response for frequency tracking
+    recentResponses.push(Date.now());
 
     console.log(`[Bot] Replied: ${response.text!.slice(0, 50)}`);
   });

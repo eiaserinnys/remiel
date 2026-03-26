@@ -8,6 +8,11 @@ const SKIP_TOKEN = "[SKIP]";
 // Reset when compact_boundary fires (context too large) or on error.
 let currentSessionId: string | null = null;
 
+/** True when no active session exists — caller should inject channel context. */
+export function isNewSession(): boolean {
+  return currentSessionId === null;
+}
+
 export interface ClaudeResponse {
   text: string | null;
   skipped: boolean;
