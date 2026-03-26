@@ -108,7 +108,7 @@ export function createSlackApp(config: Config): App {
 
     const skipDirective = frequencyGated
       ? `[지침: 최근 발언이 많았기 때문에 자신(레미엘)을 직접 부르는 메시지가 아니면 반드시 [SKIP]으로만 응답한다.]\n`
-      : `[지침: 자신(레미엘)을 부르는 메시지가 아니면 반드시 [SKIP]으로만 응답한다.]\n`;
+      : ``;
 
     const prompt = preamble + skipDirective + formatPrompt(
       msg.channelId,
