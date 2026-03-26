@@ -4,6 +4,7 @@ export interface QueuedMessage {
   userId: string;
   userName: string;
   text: string;
+  receivedAt: number; // Date.now() ms when the message entered the queue
 }
 
 type MessageHandler = (message: QueuedMessage) => Promise<void>;

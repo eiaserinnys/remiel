@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { loadConfig } from "./config.js";
 import { createSlackApp } from "./slack.js";
+import { TimingLogger } from "./timing.js";
 
 async function main() {
   const config = loadConfig();
@@ -10,7 +11,10 @@ async function main() {
   console.log(`[Remiel] Workspace: ${config.workspaceDir}`);
   console.log(`[Remiel] Monitoring channels: ${config.slackChannelIds.join(", ")}`);
 
-  const app = createSlackApp(config);
+  const timingLogger = new TimingLogger(config.workspaceDir);
+  await timingLogger.initialize();
+
+  const app = createSlackApp(config, timingLogger);
   await app.start();
 
   console.log(`[Remiel] Bot is running!`);

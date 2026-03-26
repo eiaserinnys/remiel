@@ -2,6 +2,7 @@ import { App } from "@slack/bolt";
 import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
 import { askClaude, isNewSession, formatPrompt } from "./claude.js";
+import { TimingLogger } from "./timing.js";
 
 interface SlackMessage {
   channel: string;
@@ -79,7 +80,7 @@ async function dmOperator(app: App, config: Config, text: string): Promise<void>
   }
 }
 
-export function createSlackApp(config: Config): App {
+export function createSlackApp(config: Config, timingLogger: TimingLogger): App {
   const app = new App({
     token: config.slackBotToken,
     appToken: config.slackAppToken,
@@ -87,6 +88,14 @@ export function createSlackApp(config: Config): App {
   });
 
   const queue = new MessageQueue(async (msg: QueuedMessage) => {
+    const dequeuedAt = Date.now();
+    const timingCtx = {
+      receivedAt: msg.receivedAt,
+      msgTs: msg.threadTs,
+      user: msg.userName,
+      text: msg.text,
+    };
+
     // Check before calling askClaude — session may reset inside the call too
     const needsContext = isNewSession();
 
@@ -120,7 +129,9 @@ export function createSlackApp(config: Config): App {
 
     console.log(`[Bot] Processing: ${msg.userName} > ${msg.text.slice(0, 50)}`);
 
+    const claudeStartAt = Date.now();
     const response = await askClaude(config, prompt);
+    const claudeDoneAt = Date.now();
 
     if (response.compacted) {
       console.log(`[Bot] Session compacted — reset`);
@@ -134,6 +145,7 @@ export function createSlackApp(config: Config): App {
         config,
         `[SKIP] ${msg.userName}: ${msg.text.slice(0, 100)}`,
       );
+      await timingLogger.record(timingCtx, dequeuedAt, claudeStartAt, claudeDoneAt, null, true);
       return;
     }
 
@@ -141,6 +153,9 @@ export function createSlackApp(config: Config): App {
       channel: msg.channelId,
       text: response.text!,
     });
+    const postedAt = Date.now();
+
+    await timingLogger.record(timingCtx, dequeuedAt, claudeStartAt, claudeDoneAt, postedAt, false);
 
     // Record this response for frequency tracking
     recentResponses.push(Date.now());
@@ -198,6 +213,7 @@ export function createSlackApp(config: Config): App {
       userId,
       userName,
       text,
+      receivedAt: Date.now(),
     });
   });
 
