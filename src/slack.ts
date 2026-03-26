@@ -1,4 +1,4 @@
-import App from "@slack/bolt";
+import { App } from "@slack/bolt";
 import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
 import { askClaude, formatPrompt } from "./claude.js";
