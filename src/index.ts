@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { createSlackApp } from "./slack.js";
 import { TimingLogger } from "./timing.js";
 import { DelegationManager } from "./delegation.js";
+import { DeepThinkManager } from "./deepthink.js";
 
 async function main() {
   const config = loadConfig();
@@ -30,7 +31,10 @@ async function main() {
     console.log(`[Remiel] Delegation disabled (SOULSTREAM_URL/TOKEN/AGENT_ID not set)`);
   }
 
-  const app = await createSlackApp(config, timingLogger, delegationManager);
+  const deepThinkManager = new DeepThinkManager(config, config.deepThinkDumpChannelId);
+
+  const app = await createSlackApp(config, timingLogger, delegationManager, deepThinkManager);
+  deepThinkManager.setApp(app);
   await app.start();
 
   console.log(`[Remiel] Bot is running!`);

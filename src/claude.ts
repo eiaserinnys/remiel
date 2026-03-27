@@ -76,6 +76,36 @@ export async function askClaude(
   return { text: trimmed, skipped: false, compacted };
 }
 
+export async function askClaudeDeepThink(
+  config: Config,
+  prompt: string,
+): Promise<string | null> {
+  let result: string | null = null;
+  try {
+    for await (const message of query({
+      prompt,
+      options: {
+        maxTurns: 20,
+        cwd: config.workspaceDir,
+        settingSources: [],
+        allowedTools: [],
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+        model: config.claudeModel,
+      },
+    })) {
+      const msg = message as SDKMessage;
+      if ("result" in msg && typeof msg.result === "string") {
+        result = msg.result;
+      }
+    }
+  } catch (err) {
+    console.error("[DeepThink] askClaudeDeepThink error:", err);
+    return null;
+  }
+  return result?.trim() ?? null;
+}
+
 /** Convert Slack ts (unix seconds) to KST "YYYY-MM-DD HH:MM" */
 export function tsToDateTime(ts: string): string {
   const ms = parseFloat(ts) * 1000;
