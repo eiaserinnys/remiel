@@ -171,7 +171,7 @@ export function createSlackApp(
         const channelContext = await fetchChannelContext(app, msg.channelId);
         for (const content of requests) {
           try {
-            const reqId = await delegationManager.delegate(content, channelContext);
+            const reqId = await delegationManager.delegate(content, channelContext, msg.channelId);
             console.log(`[Delegation] Created request ${reqId}`);
           } catch (err) {
             console.error(`[Delegation] Failed to delegate:`, err);
@@ -198,6 +198,21 @@ export function createSlackApp(
     if (textToPost) console.log(`[Bot] Replied: ${textToPost.slice(0, 50)}`);
     else console.log(`[Bot] Delegation only — no text posted`);
   });
+
+  // Register delegation completion callback — enqueues a system trigger message
+  // so Claude sees the completed status in its preamble and notifies the channel.
+  if (delegationManager) {
+    delegationManager.setOnComplete((channelId, requestId) => {
+      queue.enqueue({
+        channelId,
+        threadTs: `${Date.now() / 1000}`,
+        userId: "system",
+        userName: "시스템",
+        text: `[시스템: 의뢰 ${requestId} 처리가 완료되었습니다. 채널에 결과를 알려주세요.]`,
+        receivedAt: Date.now(),
+      });
+    });
+  }
 
   // Resolve user display name from Slack API
   const userNameCache = new Map<string, string>();

@@ -4,12 +4,15 @@ const TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 interface DelegationRequest {
   id: string;
   content: string;
+  channelId: string;
   status: "pending" | "completed" | "failed" | "timeout";
   partialText: string;
   finalResult?: string;
   createdAt: number;
   abortController: AbortController;
 }
+
+export type OnCompleteCallback = (channelId: string, requestId: string) => void;
 
 export function parseRequests(text: string): string[] {
   const matches = [...text.matchAll(/<request>([\s\S]*?)<\/request>/g)];
@@ -23,13 +26,20 @@ export function stripRequests(text: string): string {
 export class DelegationManager {
   private requests = new Map<string, DelegationRequest>();
   private cleanupInterval: ReturnType<typeof setInterval>;
+  private onComplete?: OnCompleteCallback;
 
   constructor(
     private soulstreamUrl: string,
     private token: string,
     private agentId: string,
+    onComplete?: OnCompleteCallback,
   ) {
+    this.onComplete = onComplete;
     this.cleanupInterval = this.scheduleCleanup();
+  }
+
+  setOnComplete(callback: OnCompleteCallback): void {
+    this.onComplete = callback;
   }
 
   private generateId(): string {
@@ -38,7 +48,7 @@ export class DelegationManager {
     return `req-${ts}-${rand}`;
   }
 
-  async delegate(content: string, channelContext: string): Promise<string> {
+  async delegate(content: string, channelContext: string, channelId = ""): Promise<string> {
     const pending = [...this.requests.values()].filter(
       (r) => r.status === "pending",
     );
@@ -54,6 +64,7 @@ export class DelegationManager {
     const request: DelegationRequest = {
       id,
       content,
+      channelId,
       status: "pending",
       partialText: "",
       createdAt: Date.now(),
@@ -71,6 +82,7 @@ export class DelegationManager {
       const req = this.requests.get(id);
       if (req && req.status === "pending") {
         req.status = "failed";
+        this.onComplete?.(req.channelId, id);
       }
     });
 
@@ -183,9 +195,11 @@ export class DelegationManager {
                 typeof data["result"] === "string"
                   ? data["result"]
                   : currentReq.partialText;
+              this.onComplete?.(currentReq.channelId, requestId);
               return;
             } else if (eventType === "error") {
               currentReq.status = "failed";
+              this.onComplete?.(currentReq.channelId, requestId);
               return;
             }
           } catch {
@@ -214,9 +228,11 @@ export class DelegationManager {
               currentReq.status = "completed";
               currentReq.finalResult =
                 typeof data["result"] === "string" ? data["result"] : currentReq.partialText;
+              this.onComplete?.(currentReq.channelId, requestId);
               return;
             } else if (eventType === "error") {
               currentReq.status = "failed";
+              this.onComplete?.(currentReq.channelId, requestId);
               return;
             }
           }
@@ -230,6 +246,7 @@ export class DelegationManager {
     const currentReq = this.requests.get(requestId);
     if (currentReq && currentReq.status === "pending") {
       currentReq.status = "failed";
+      this.onComplete?.(currentReq.channelId, requestId);
     }
   }
 
