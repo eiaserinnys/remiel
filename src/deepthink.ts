@@ -1,6 +1,22 @@
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import type { App } from "@slack/bolt";
 import type { Config } from "./config.js";
 import { askClaudeDeepThink } from "./claude.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function loadSystemPrompt(): string {
+  try {
+    return readFileSync(join(__dirname, "..", "deepthink_system.txt"), "utf-8").trim();
+  } catch {
+    console.warn("[DeepThink] deepthink_system.txt not found, using empty system prompt");
+    return "";
+  }
+}
+
+const DEEPTHINK_SYSTEM_PROMPT = loadSystemPrompt();
 
 const MAX_CONCURRENT = 3;
 const TIMEOUT_MS = 5 * 60 * 1000; // 5분
@@ -59,13 +75,18 @@ export class DeepThinkManager {
     const req = this.requests.get(id)!;
     await this.dump(`[딥씽크 시작] id: ${id}\n쿼리: ${query.slice(0, 100)}`);
     const startAt = Date.now();
-    const prompt = [
+    const parts: string[] = [];
+    if (DEEPTHINK_SYSTEM_PROMPT) {
+      parts.push("=== 지침 ===", DEEPTHINK_SYSTEM_PROMPT, "");
+    }
+    parts.push(
       "=== 채널 컨텍스트 (최근 30개 메시지) ===",
       channelContext,
       "",
       "=== 분석 요청 ===",
       query,
-    ].join("\n");
+    );
+    const prompt = parts.join("\n");
     try {
       const result = await askClaudeDeepThink(this.config, prompt);
       const elapsed = ((Date.now() - startAt) / 1000).toFixed(1);
