@@ -3,7 +3,7 @@ import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
 import { askClaude, isNewSession, formatPrompt } from "./claude.js";
 import { TimingLogger } from "./timing.js";
-import { DelegationManager, parseRequests } from "./delegation.js";
+import { DelegationManager, parseRequests, stripRequests } from "./delegation.js";
 
 interface SlackMessage {
   channel: string;
@@ -180,18 +180,23 @@ export function createSlackApp(
       }
     }
 
-    await app.client.chat.postMessage({
-      channel: msg.channelId,
-      text: response.text!,
-    });
-    const postedAt = Date.now();
+    const textToPost = stripRequests(response.text!);
+    let postedAt: number | null = null;
+    if (textToPost) {
+      await app.client.chat.postMessage({
+        channel: msg.channelId,
+        text: textToPost,
+      });
+      postedAt = Date.now();
+    }
 
     await timingLogger.record(timingCtx, dequeuedAt, claudeStartAt, claudeDoneAt, postedAt, false);
 
     // Record this response for frequency tracking
     recentResponses.push(Date.now());
 
-    console.log(`[Bot] Replied: ${response.text!.slice(0, 50)}`);
+    if (textToPost) console.log(`[Bot] Replied: ${textToPost.slice(0, 50)}`);
+    else console.log(`[Bot] Delegation only — no text posted`);
   });
 
   // Resolve user display name from Slack API

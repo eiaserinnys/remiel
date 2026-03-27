@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parseRequests, DelegationManager } from "../src/delegation.js";
+import { parseRequests, stripRequests, DelegationManager } from "../src/delegation.js";
 
 // ---------------------------------------------------------------------------
 // parseRequests
@@ -31,6 +31,81 @@ describe("parseRequests", () => {
     const results = parseRequests(text);
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]).toContain("outer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripRequests
+// ---------------------------------------------------------------------------
+
+describe("stripRequests", () => {
+  it("단일 <request> 태그를 제거한다", () => {
+    const text = "소영이한테 넘겼어. <request>배경: 테스트</request> 결과 나오면 알려줄게.";
+    expect(stripRequests(text)).toBe("소영이한테 넘겼어.  결과 나오면 알려줄게.");
+  });
+
+  it("여러 <request> 태그를 모두 제거한다", () => {
+    const text = "알겠어. <request>첫 번째</request> 그리고 <request>두 번째</request> 기다려봐.";
+    expect(stripRequests(text)).toBe("알겠어.  그리고  기다려봐.");
+  });
+
+  it("<request> 태그만 있을 때 빈 문자열을 반환한다", () => {
+    const text = "<request>배경: 테스트\n원하는 결과: 성공</request>";
+    expect(stripRequests(text)).toBe("");
+  });
+
+  it("<request> 태그가 없으면 원문을 그대로 반환한다", () => {
+    const text = "아무 태그도 없어. 그냥 텍스트야.";
+    expect(stripRequests(text)).toBe("아무 태그도 없어. 그냥 텍스트야.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DelegationManager — 잔여 buffer complete 이벤트 처리
+// ---------------------------------------------------------------------------
+
+describe("DelegationManager — 잔여 buffer complete 이벤트 처리", () => {
+  let manager: DelegationManager;
+
+  afterEach(() => {
+    manager.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  it("trailing \\n\\n 없는 complete 이벤트를 스트림 종료 후 처리한다", async () => {
+    const encoder = new TextEncoder();
+    // \n\n 없이 끝나는 SSE 이벤트 (trailing newline 미포함)
+    const sseData = "event: complete\ndata: {\"result\":\"ok\"}";
+    let callCount = 0;
+    const mockBody = {
+      getReader: () => ({
+        read: async () => {
+          if (callCount === 0) {
+            callCount++;
+            return { done: false, value: encoder.encode(sseData) };
+          }
+          return { done: true, value: undefined };
+        },
+        releaseLock: () => {},
+      }),
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: mockBody,
+    }));
+
+    manager = new DelegationManager("http://localhost:4105", "token", "agent-id");
+    const id = await manager.delegate("buffer 처리 테스트", "");
+
+    // SSE 스트림이 완료될 때까지 대기
+    await new Promise((r) => setTimeout(r, 50));
+
+    const preamble = manager.getPreamble();
+    expect(preamble).toContain("의뢰 완료");
+    expect(preamble).toContain("ok");
+    expect(preamble).toContain(id);
   });
 });
 
