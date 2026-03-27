@@ -22,6 +22,8 @@ async function main() {
           config.soulstreamUrl,
           config.soulstreamToken,
           config.soulstreamAgentId,
+          undefined,
+          config.delegationDumpChannelId,
         )
       : null;
 
@@ -35,6 +37,7 @@ async function main() {
 
   const app = await createSlackApp(config, timingLogger, delegationManager, deepThinkManager);
   deepThinkManager.setApp(app);
+  delegationManager?.setApp(app);
   await app.start();
 
   console.log(`[Remiel] Bot is running!`);

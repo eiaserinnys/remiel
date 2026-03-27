@@ -1,3 +1,5 @@
+import type { App } from "@slack/bolt";
+
 const MAX_CONCURRENT = 3;
 const TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
@@ -32,19 +34,32 @@ export class DelegationManager {
   private requests = new Map<string, DelegationRequest>();
   private cleanupInterval: ReturnType<typeof setInterval>;
   private onComplete?: OnCompleteCallback;
+  private app?: App;
 
   constructor(
     private soulstreamUrl: string,
     private token: string,
     private agentId: string,
     onComplete?: OnCompleteCallback,
+    private dumpChannelId?: string,
   ) {
     this.onComplete = onComplete;
     this.cleanupInterval = this.scheduleCleanup();
   }
 
+  setApp(app: App): void {
+    this.app = app;
+  }
+
   setOnComplete(callback: OnCompleteCallback): void {
     this.onComplete = callback;
+  }
+
+  private async dump(text: string): Promise<void> {
+    if (!this.dumpChannelId || !this.app) return;
+    try {
+      await this.app.client.chat.postMessage({ channel: this.dumpChannelId, text });
+    } catch { /* 덤프 실패는 무시 */ }
   }
 
   private generateId(): string {
@@ -77,6 +92,8 @@ export class DelegationManager {
     };
 
     this.requests.set(id, request);
+
+    void this.dump(`[의뢰 시작] id: ${id}\n내용: ${content.slice(0, 100)}`);
 
     const prompt = channelContext
       ? `${channelContext}\n\n레미엘 채널에서 다음 의뢰가 접수되었습니다:\n${content}`
@@ -200,10 +217,12 @@ export class DelegationManager {
                 typeof data["result"] === "string"
                   ? data["result"]
                   : currentReq.partialText;
+              void this.dump(`[의뢰 완료] id: ${requestId}\n결과: ${(currentReq.finalResult ?? "").slice(0, 200)}`);
               void this.onComplete?.(currentReq.channelId, requestId, "completed", currentReq.finalResult);
               return;
             } else if (eventType === "error") {
               currentReq.status = "failed";
+              void this.dump(`[의뢰 실패] id: ${requestId}`);
               void this.onComplete?.(currentReq.channelId, requestId, "failed", undefined);
               return;
             }
@@ -233,10 +252,12 @@ export class DelegationManager {
               currentReq.status = "completed";
               currentReq.finalResult =
                 typeof data["result"] === "string" ? data["result"] : currentReq.partialText;
+              void this.dump(`[의뢰 완료] id: ${requestId}\n결과: ${(currentReq.finalResult ?? "").slice(0, 200)}`);
               void this.onComplete?.(currentReq.channelId, requestId, "completed", currentReq.finalResult);
               return;
             } else if (eventType === "error") {
               currentReq.status = "failed";
+              void this.dump(`[의뢰 실패] id: ${requestId}`);
               void this.onComplete?.(currentReq.channelId, requestId, "failed", undefined);
               return;
             }
@@ -251,6 +272,7 @@ export class DelegationManager {
     const currentReq = this.requests.get(requestId);
     if (currentReq && currentReq.status === "pending") {
       currentReq.status = "failed";
+      void this.dump(`[의뢰 실패] id: ${requestId}`);
       void this.onComplete?.(currentReq.channelId, requestId, "failed", undefined);
     }
   }
@@ -263,6 +285,7 @@ export class DelegationManager {
           req.abortController.abort();
           req.status = "timeout";
           this.requests.delete(id);
+          void this.dump(`[의뢰 타임아웃] id: ${id}`);
           console.log(`[Delegation] Request ${id} timed out`);
         }
       }

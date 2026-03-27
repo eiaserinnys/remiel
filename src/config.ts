@@ -20,6 +20,7 @@ export interface Config {
   soulstreamToken?: string;
   soulstreamAgentId?: string;
   deepThinkDumpChannelId?: string;
+  delegationDumpChannelId?: string;
 }
 
 export function loadConfig(): Config {
@@ -35,5 +36,6 @@ export function loadConfig(): Config {
     soulstreamToken: process.env["SOULSTREAM_TOKEN"],
     soulstreamAgentId: process.env["SOULSTREAM_AGENT_ID"],
     deepThinkDumpChannelId: process.env["DEEPTHINK_DUMP_CHANNEL_ID"],
+    delegationDumpChannelId: process.env["DELEGATION_DUMP_CHANNEL_ID"],
   };
 }
