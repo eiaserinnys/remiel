@@ -85,16 +85,20 @@ async function dmOperator(app: App, config: Config, text: string): Promise<void>
   }
 }
 
-export function createSlackApp(
+export async function createSlackApp(
   config: Config,
   timingLogger: TimingLogger,
   delegationManager: DelegationManager | null = null,
-): App {
+): Promise<App> {
   const app = new App({
     token: config.slackBotToken,
     appToken: config.slackAppToken,
     socketMode: true,
   });
+
+  // Identify our own bot_id to avoid self-triggering
+  const authResult = await app.client.auth.test();
+  const selfBotId = authResult.bot_id as string | undefined;
 
   const queue = new MessageQueue(async (msg: QueuedMessage) => {
     const dequeuedAt = Date.now();
@@ -253,8 +257,8 @@ export function createSlackApp(
     // Filter: only monitored channels
     if (!channelSet.has(msg.channel)) return;
 
-    // Filter: ignore bot messages
-    if (msg.bot_id) return;
+    // Filter: ignore own messages to prevent self-triggering
+    if (msg.bot_id && msg.bot_id === selfBotId) return;
 
     // Filter: ignore thread replies (main channel only)
     if (msg.thread_ts) return;
@@ -262,10 +266,13 @@ export function createSlackApp(
     const text = msg.text;
     if (!text || !text.trim()) return;
 
-    const userId = msg.user;
+    // Bot messages have no user field — fall back to bot_id
+    const userId = msg.user ?? msg.bot_id;
     if (!userId) return;
 
-    const userName = await resolveUserName(userId);
+    const userName = msg.user
+      ? await resolveUserName(msg.user)
+      : (msg.bot_profile?.name ?? msg.username ?? userId);
     const threadTs = msg.thread_ts ?? msg.ts;
 
     queue.enqueue({

@@ -30,7 +30,7 @@ async function main() {
     console.log(`[Remiel] Delegation disabled (SOULSTREAM_URL/TOKEN/AGENT_ID not set)`);
   }
 
-  const app = createSlackApp(config, timingLogger, delegationManager);
+  const app = await createSlackApp(config, timingLogger, delegationManager);
   await app.start();
 
   console.log(`[Remiel] Bot is running!`);
