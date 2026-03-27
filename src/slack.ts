@@ -110,6 +110,11 @@ async function dmOperator(app: App, config: Config, text: string): Promise<void>
   }
 }
 
+function dmHeader(userName: string, isBot: boolean, badge: string): string {
+  const botTag = isBot ? " [봇]" : "";
+  return `*${userName}${botTag} \`${badge}\`*`;
+}
+
 export async function createSlackApp(
   config: Config,
   timingLogger: TimingLogger,
@@ -195,7 +200,7 @@ export async function createSlackApp(
       await dmOperator(
         app,
         config,
-        `[SKIP] ${msg.userName}: ${msg.text.slice(0, 100)}`,
+        `${dmHeader(msg.userName, msg.isBot, "💤SKIP")}\n${msg.text.slice(0, 200)}`,
       );
       await timingLogger.record(timingCtx, dequeuedAt, claudeStartAt, claudeDoneAt, null, true);
       return;
@@ -248,8 +253,22 @@ export async function createSlackApp(
     // Record this response for frequency tracking
     recentResponses.push(Date.now());
 
-    if (textToPost) console.log(`[Bot] Replied: ${textToPost.slice(0, 50)}`);
-    else console.log(`[Bot] Delegation only — no text posted`);
+    const elapsedSec = ((claudeDoneAt - claudeStartAt) / 1000).toFixed(1);
+    await dmOperator(
+      app,
+      config,
+      `${dmHeader(msg.userName, msg.isBot, "✅CHECK")}\n${msg.text.slice(0, 200)}`,
+    );
+    if (textToPost) {
+      await dmOperator(
+        app,
+        config,
+        `*\`🗯️${elapsedSec}s elapsed\`*\n${textToPost.slice(0, 200)}`,
+      );
+      console.log(`[Bot] Replied: ${textToPost.slice(0, 50)}`);
+    } else {
+      console.log(`[Bot] Delegation only — no text posted`);
+    }
   });
 
   // Register delegation completion callback — calls Claude directly with the result

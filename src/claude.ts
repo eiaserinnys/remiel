@@ -3,10 +3,12 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "./config.js";
 
 const SKIP_TOKEN = "[SKIP]";
+const SESSION_IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15분 유휴 시 세션 폐기
 
 // Module-level session state — reused across messages for faster startup.
 // Reset when compact_boundary fires (context too large) or on error.
 let currentSessionId: string | null = null;
+let lastActivityAt: number = Date.now();
 
 /** True when no active session exists — caller should inject channel context. */
 export function isNewSession(): boolean {
@@ -25,6 +27,14 @@ export async function askClaude(
 ): Promise<ClaudeResponse> {
   let result: string | null = null;
   let compacted = false;
+
+  // 15분 이상 유휴 상태면 세션을 폐기하고 새로 시작
+  const now = Date.now();
+  if (currentSessionId && now - lastActivityAt > SESSION_IDLE_TIMEOUT_MS) {
+    console.log(`[Claude] Session idle for >15m — discarding`);
+    currentSessionId = null;
+  }
+  lastActivityAt = now;
 
   const resumingSessionId = currentSessionId;
 
