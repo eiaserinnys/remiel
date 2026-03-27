@@ -76,14 +76,17 @@ export async function askClaude(
   return { text: trimmed, skipped: false, compacted };
 }
 
-/** Convert Slack ts (unix seconds) to KST HH:MM */
-export function tsToTime(ts: string): string {
+/** Convert Slack ts (unix seconds) to KST "YYYY-MM-DD HH:MM" */
+export function tsToDateTime(ts: string): string {
   const ms = parseFloat(ts) * 1000;
-  if (Number.isNaN(ms)) return "??:??";
-  const date = new Date(ms);
-  const kstH = (date.getUTCHours() + 9) % 24;
-  const mm = date.getUTCMinutes().toString().padStart(2, "0");
-  return `${kstH.toString().padStart(2, "0")}:${mm}`;
+  if (Number.isNaN(ms)) return "????-??-?? ??:??";
+  const d = new Date(ms + 9 * 3600 * 1000); // shift to KST
+  const yyyy = d.getUTCFullYear();
+  const mo = (d.getUTCMonth() + 1).toString().padStart(2, "0");
+  const dd = d.getUTCDate().toString().padStart(2, "0");
+  const hh = d.getUTCHours().toString().padStart(2, "0");
+  const mm = d.getUTCMinutes().toString().padStart(2, "0");
+  return `${yyyy}-${mo}-${dd} ${hh}:${mm}`;
 }
 
 export function formatPrompt(
@@ -94,7 +97,7 @@ export function formatPrompt(
   text: string,
   isBot = false,
 ): string {
-  const time = tsToTime(threadTs);
+  const datetime = tsToDateTime(threadTs);
   const botTag = isBot ? " [봇]" : "";
-  return `[${channelId}:${time}] <${userId}> [${userName}${botTag}]\n${text}`;
+  return `[${channelId}:${threadTs}] [${datetime}] <${userId}> [${userName}${botTag}]\n${text}`;
 }

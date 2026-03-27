@@ -1,7 +1,7 @@
 import { App } from "@slack/bolt";
 import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
-import { askClaude, isNewSession, formatPrompt, tsToTime } from "./claude.js";
+import { askClaude, isNewSession, formatPrompt, tsToDateTime } from "./claude.js";
 import { TimingLogger } from "./timing.js";
 import { DelegationManager, parseRequests, stripRequests } from "./delegation.js";
 
@@ -59,9 +59,10 @@ async function fetchChannelContext(app: App, channelId: string): Promise<string>
         const userId = msg.user ?? msg.bot_id ?? "unknown";
         const text = (msg.text ?? "").trim();
         if (!text) return null;
-        const time = tsToTime(msg.ts ?? "0");
+        const ts = msg.ts ?? "0";
+        const datetime = tsToDateTime(ts);
         const botTag = msg.bot_id ? " [봇]" : "";
-        return `[${channelId}:${time}] <${userId}>${botTag}: ${text}`;
+        return `[${channelId}:${ts}] [${datetime}] <${userId}>${botTag}: ${text}`;
       })
       .filter((line): line is string => line !== null);
 
