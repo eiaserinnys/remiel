@@ -19,6 +19,7 @@ export interface Config {
   soulstreamUrl?: string;
   soulstreamToken?: string;
   soulstreamAgentId?: string;
+  deepThinkDumpChannelId?: string;
 }
 
 export function loadConfig(): Config {
@@ -33,5 +34,6 @@ export function loadConfig(): Config {
     soulstreamUrl: process.env["SOULSTREAM_URL"],
     soulstreamToken: process.env["SOULSTREAM_TOKEN"],
     soulstreamAgentId: process.env["SOULSTREAM_AGENT_ID"],
+    deepThinkDumpChannelId: process.env["DEEPTHINK_DUMP_CHANNEL_ID"],
   };
 }

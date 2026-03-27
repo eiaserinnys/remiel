@@ -4,6 +4,7 @@ import { MessageQueue, type QueuedMessage } from "./queue.js";
 import { askClaude, isNewSession, formatPrompt, tsToDateTime } from "./claude.js";
 import { TimingLogger } from "./timing.js";
 import { DelegationManager, parseRequests, stripRequests } from "./delegation.js";
+import { DeepThinkManager } from "./deepthink.js";
 
 interface SlackMessage {
   channel: string;
@@ -46,11 +47,11 @@ function interventionProbability(recentCount: number): number {
   return Math.max(0.0, base * jitter);
 }
 
-async function fetchChannelContext(app: App, channelId: string): Promise<string> {
+async function fetchChannelContext(app: App, channelId: string, limit = 15): Promise<string> {
   try {
     const result = await app.client.conversations.history({
       channel: channelId,
-      limit: 15,
+      limit,
     });
 
     const messages = [...(result.messages ?? [])].reverse();
@@ -76,6 +77,15 @@ async function fetchChannelContext(app: App, channelId: string): Promise<string>
   }
 }
 
+export function parseDeepThinks(text: string): string[] {
+  const matches = [...text.matchAll(/<deepthink>([\s\S]*?)<\/deepthink>/g)];
+  return matches.map(m => m[1].trim()).filter(Boolean);
+}
+
+export function stripDeepThinks(text: string): string {
+  return text.replace(/<deepthink>[\s\S]*?<\/deepthink>/g, "").trim();
+}
+
 async function dmOperator(app: App, config: Config, text: string): Promise<void> {
   if (!config.operatorUserId) return;
   try {
@@ -92,6 +102,7 @@ export async function createSlackApp(
   config: Config,
   timingLogger: TimingLogger,
   delegationManager: DelegationManager | null = null,
+  deepThinkManager: DeepThinkManager | null = null,
 ): Promise<App> {
   const app = new App({
     token: config.slackBotToken,
@@ -132,7 +143,13 @@ export async function createSlackApp(
       preamble += delegationPreamble + "\n";
     }
 
-    // [3] Frequency-aware SKIP directive injection
+    // [3] DeepThink 현황
+    const deepThinkPreamble = deepThinkManager?.getPreamble() ?? "";
+    if (deepThinkPreamble) {
+      preamble += deepThinkPreamble + "\n";
+    }
+
+    // [4] Frequency-aware SKIP directive injection
     const recentCount = countRecentResponses();
     const prob = interventionProbability(recentCount);
     const frequencyGated = Math.random() > prob;
@@ -188,7 +205,23 @@ export async function createSlackApp(
       }
     }
 
-    const textToPost = stripRequests(response.text!);
+    // Detect <deepthink> tags and start deep thinking
+    if (deepThinkManager && response.text) {
+      const deepThinks = parseDeepThinks(response.text);
+      if (deepThinks.length > 0) {
+        const deepThinkContext = await fetchChannelContext(app, msg.channelId, 30);
+        for (const dtQuery of deepThinks) {
+          try {
+            const dtId = await deepThinkManager.think(dtQuery, deepThinkContext, msg.channelId);
+            console.log(`[DeepThink] Started ${dtId}`);
+          } catch (err) {
+            console.error(`[DeepThink] Failed to start:`, err);
+          }
+        }
+      }
+    }
+
+    const textToPost = stripDeepThinks(stripRequests(response.text!));
     let postedAt: number | null = null;
     if (textToPost) {
       await app.client.chat.postMessage({
@@ -228,6 +261,28 @@ export async function createSlackApp(
         }
       } catch (err) {
         console.error(`[Delegation] Failed to notify channel:`, err);
+      }
+    });
+  }
+
+  // Register deepthink completion callback
+  if (deepThinkManager) {
+    deepThinkManager.setOnComplete(async (channelId, requestId, status, result) => {
+      const preamble = deepThinkManager.getPreamble();
+      const systemPrompt = status === "completed"
+        ? `${preamble}[시스템: 딥씽크(${requestId}) 완료. 결과: ${result?.slice(0, 500)}. 채널에 이어서 발언해.]`
+        : `${preamble}[시스템: 딥씽크(${requestId}) 실패. 적절히 마무리해.]`;
+      try {
+        const response = await askClaude(config, systemPrompt);
+        if (!response.skipped && response.text) {
+          const textToPost = stripDeepThinks(stripRequests(response.text));
+          if (textToPost) {
+            await app.client.chat.postMessage({ channel: channelId, text: textToPost });
+            console.log(`[DeepThink] onComplete posted: ${textToPost.slice(0, 50)}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[DeepThink] onComplete callback error:`, err);
       }
     });
   }
