@@ -282,6 +282,182 @@ describe("DelegationManager — 동시 의뢰 최대 3개", () => {
 });
 
 // ---------------------------------------------------------------------------
+// DelegationManager — onComplete 콜백
+// ---------------------------------------------------------------------------
+
+describe("DelegationManager — onComplete 콜백", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("complete 이벤트 수신 시 onComplete(channelId, requestId)가 호출된다", async () => {
+    const encoder = new TextEncoder();
+    const sseData = "event: complete\ndata: {\"result\":\"done\"}\n\n";
+    let called = false;
+    const mockBody = {
+      getReader: () => ({
+        read: async () => {
+          if (!called) {
+            called = true;
+            return { done: false, value: encoder.encode(sseData) };
+          }
+          return { done: true, value: undefined };
+        },
+        releaseLock: () => {},
+      }),
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: mockBody,
+    }));
+
+    const onComplete = vi.fn();
+    const manager = new DelegationManager(
+      "http://localhost:4105",
+      "token",
+      "agent-id",
+      onComplete,
+    );
+
+    const id = await manager.delegate("완료 콜백 테스트", "", "C123");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith("C123", id);
+
+    manager.destroy();
+  });
+
+  it("error 이벤트 수신 시 onComplete(channelId, requestId)가 호출된다", async () => {
+    const encoder = new TextEncoder();
+    const sseData = "event: error\ndata: {\"message\":\"fail\"}\n\n";
+    let called = false;
+    const mockBody = {
+      getReader: () => ({
+        read: async () => {
+          if (!called) {
+            called = true;
+            return { done: false, value: encoder.encode(sseData) };
+          }
+          return { done: true, value: undefined };
+        },
+        releaseLock: () => {},
+      }),
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: mockBody,
+    }));
+
+    const onComplete = vi.fn();
+    const manager = new DelegationManager(
+      "http://localhost:4105",
+      "token",
+      "agent-id",
+      onComplete,
+    );
+
+    const id = await manager.delegate("에러 콜백 테스트", "", "C456");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith("C456", id);
+
+    manager.destroy();
+  });
+
+  it("스트림이 complete 이벤트 없이 종료될 때 onComplete가 호출된다", async () => {
+    const mockBody = {
+      getReader: () => ({
+        read: async () => ({ done: true, value: undefined }),
+        releaseLock: () => {},
+      }),
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: mockBody,
+    }));
+
+    const onComplete = vi.fn();
+    const manager = new DelegationManager(
+      "http://localhost:4105",
+      "token",
+      "agent-id",
+      onComplete,
+    );
+
+    const id = await manager.delegate("조기 종료 테스트", "", "C789");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith("C789", id);
+
+    manager.destroy();
+  });
+
+  it("fetch 실패 시 onComplete가 호출된다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
+
+    const onComplete = vi.fn();
+    const manager = new DelegationManager(
+      "http://localhost:4105",
+      "token",
+      "agent-id",
+      onComplete,
+    );
+
+    const id = await manager.delegate("fetch 실패 테스트", "", "C999");
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith("C999", id);
+
+    manager.destroy();
+  });
+
+  it("onComplete 없이 생성된 DelegationManager는 정상 동작한다", async () => {
+    const encoder = new TextEncoder();
+    const sseData = "event: complete\ndata: {\"result\":\"ok\"}\n\n";
+    let called = false;
+    const mockBody = {
+      getReader: () => ({
+        read: async () => {
+          if (!called) {
+            called = true;
+            return { done: false, value: encoder.encode(sseData) };
+          }
+          return { done: true, value: undefined };
+        },
+        releaseLock: () => {},
+      }),
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: mockBody,
+    }));
+
+    // onComplete 없이 생성 — 에러 없이 동작해야 함
+    const manager = new DelegationManager("http://localhost:4105", "token", "agent-id");
+    const id = await manager.delegate("콜백 없는 테스트", "", "C000");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const preamble = manager.getPreamble();
+    expect(preamble).toContain("의뢰 완료");
+    expect(preamble).toContain(id);
+
+    manager.destroy();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DelegationManager — 만료 로직
 // ---------------------------------------------------------------------------
 
