@@ -16,6 +16,10 @@ export function parseRequests(text: string): string[] {
   return matches.map((m) => m[1].trim()).filter((s) => s.length > 0);
 }
 
+export function stripRequests(text: string): string {
+  return text.replace(/<request>[\s\S]*?<\/request>/g, "").trim();
+}
+
 export class DelegationManager {
   private requests = new Map<string, DelegationRequest>();
   private cleanupInterval: ReturnType<typeof setInterval>;
@@ -191,6 +195,35 @@ export class DelegationManager {
       }
     } finally {
       reader.releaseLock();
+    }
+
+    // 스트림 종료 후 buffer에 남은 마지막 이벤트 처리 (trailing \n\n 없는 경우 대비)
+    if (buffer.trim()) {
+      let eventType = "";
+      let dataStr = "";
+      for (const line of buffer.split("\n")) {
+        if (line.startsWith("event: ")) eventType = line.slice("event: ".length).trim();
+        else if (line.startsWith("data: ")) dataStr = line.slice("data: ".length).trim();
+      }
+      if (eventType && dataStr) {
+        try {
+          const data = JSON.parse(dataStr) as Record<string, unknown>;
+          const currentReq = this.requests.get(requestId);
+          if (currentReq && currentReq.status === "pending") {
+            if (eventType === "complete") {
+              currentReq.status = "completed";
+              currentReq.finalResult =
+                typeof data["result"] === "string" ? data["result"] : currentReq.partialText;
+              return;
+            } else if (eventType === "error") {
+              currentReq.status = "failed";
+              return;
+            }
+          }
+        } catch {
+          // malformed — skip
+        }
+      }
     }
 
     // Stream ended without a complete event
