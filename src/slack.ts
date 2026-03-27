@@ -78,12 +78,24 @@ async function fetchChannelContext(app: App, channelId: string, limit = 15): Pro
 }
 
 export function parseDeepThinks(text: string): string[] {
+  // 완성된 태그 쌍
   const matches = [...text.matchAll(/<deepthink>([\s\S]*?)<\/deepthink>/g)];
-  return matches.map(m => m[1].trim()).filter(Boolean);
+  const results = matches.map(m => m[1].trim()).filter(Boolean);
+  // 닫히지 않은 태그 (응답 잘림)
+  const unclosed = /<deepthink>([\s\S]*)$/.exec(text.replace(/<deepthink>[\s\S]*?<\/deepthink>/g, ""));
+  if (unclosed) {
+    const content = unclosed[1].trim();
+    if (content) results.push(content);
+  }
+  return results;
 }
 
 export function stripDeepThinks(text: string): string {
-  return text.replace(/<deepthink>[\s\S]*?<\/deepthink>/g, "").trim();
+  // 완성된 태그 쌍 제거
+  let result = text.replace(/<deepthink>[\s\S]*?<\/deepthink>/g, "");
+  // 닫히지 않은 태그 (개행 태그 포함, 응답 잘림) 제거
+  result = result.replace(/<deepthink>[\s\S]*$/, "");
+  return result.trim();
 }
 
 async function dmOperator(app: App, config: Config, text: string): Promise<void> {
