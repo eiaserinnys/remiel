@@ -290,7 +290,7 @@ describe("DelegationManager — onComplete 콜백", () => {
     vi.unstubAllGlobals();
   });
 
-  it("complete 이벤트 수신 시 onComplete(channelId, requestId)가 호출된다", async () => {
+  it("complete 이벤트 수신 시 onComplete(channelId, requestId, 'completed', finalResult)가 호출된다", async () => {
     const encoder = new TextEncoder();
     const sseData = "event: complete\ndata: {\"result\":\"done\"}\n\n";
     let called = false;
@@ -325,12 +325,12 @@ describe("DelegationManager — onComplete 콜백", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(onComplete).toHaveBeenCalledWith("C123", id);
+    expect(onComplete).toHaveBeenCalledWith("C123", id, "completed", "done");
 
     manager.destroy();
   });
 
-  it("error 이벤트 수신 시 onComplete(channelId, requestId)가 호출된다", async () => {
+  it("error 이벤트 수신 시 onComplete(channelId, requestId, 'failed', undefined)가 호출된다", async () => {
     const encoder = new TextEncoder();
     const sseData = "event: error\ndata: {\"message\":\"fail\"}\n\n";
     let called = false;
@@ -365,12 +365,12 @@ describe("DelegationManager — onComplete 콜백", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(onComplete).toHaveBeenCalledWith("C456", id);
+    expect(onComplete).toHaveBeenCalledWith("C456", id, "failed", undefined);
 
     manager.destroy();
   });
 
-  it("스트림이 complete 이벤트 없이 종료될 때 onComplete가 호출된다", async () => {
+  it("스트림이 complete 이벤트 없이 종료될 때 onComplete(channelId, requestId, 'failed', undefined)가 호출된다", async () => {
     const mockBody = {
       getReader: () => ({
         read: async () => ({ done: true, value: undefined }),
@@ -396,12 +396,12 @@ describe("DelegationManager — onComplete 콜백", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(onComplete).toHaveBeenCalledWith("C789", id);
+    expect(onComplete).toHaveBeenCalledWith("C789", id, "failed", undefined);
 
     manager.destroy();
   });
 
-  it("fetch 실패 시 onComplete가 호출된다", async () => {
+  it("fetch 실패 시 onComplete(channelId, requestId, 'failed', undefined)가 호출된다", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network error")));
 
     const onComplete = vi.fn();
@@ -416,7 +416,7 @@ describe("DelegationManager — onComplete 콜백", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(onComplete).toHaveBeenCalledWith("C999", id);
+    expect(onComplete).toHaveBeenCalledWith("C999", id, "failed", undefined);
 
     manager.destroy();
   });

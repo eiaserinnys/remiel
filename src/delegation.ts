@@ -12,7 +12,12 @@ interface DelegationRequest {
   abortController: AbortController;
 }
 
-export type OnCompleteCallback = (channelId: string, requestId: string) => void;
+export type OnCompleteCallback = (
+  channelId: string,
+  requestId: string,
+  status: "completed" | "failed",
+  finalResult?: string,
+) => void | Promise<void>;
 
 export function parseRequests(text: string): string[] {
   const matches = [...text.matchAll(/<request>([\s\S]*?)<\/request>/g)];
@@ -82,7 +87,7 @@ export class DelegationManager {
       const req = this.requests.get(id);
       if (req && req.status === "pending") {
         req.status = "failed";
-        this.onComplete?.(req.channelId, id);
+        void this.onComplete?.(req.channelId, id, "failed", undefined);
       }
     });
 
@@ -195,11 +200,11 @@ export class DelegationManager {
                 typeof data["result"] === "string"
                   ? data["result"]
                   : currentReq.partialText;
-              this.onComplete?.(currentReq.channelId, requestId);
+              void this.onComplete?.(currentReq.channelId, requestId, "completed", currentReq.finalResult);
               return;
             } else if (eventType === "error") {
               currentReq.status = "failed";
-              this.onComplete?.(currentReq.channelId, requestId);
+              void this.onComplete?.(currentReq.channelId, requestId, "failed", undefined);
               return;
             }
           } catch {
@@ -228,11 +233,11 @@ export class DelegationManager {
               currentReq.status = "completed";
               currentReq.finalResult =
                 typeof data["result"] === "string" ? data["result"] : currentReq.partialText;
-              this.onComplete?.(currentReq.channelId, requestId);
+              void this.onComplete?.(currentReq.channelId, requestId, "completed", currentReq.finalResult);
               return;
             } else if (eventType === "error") {
               currentReq.status = "failed";
-              this.onComplete?.(currentReq.channelId, requestId);
+              void this.onComplete?.(currentReq.channelId, requestId, "failed", undefined);
               return;
             }
           }
@@ -246,7 +251,7 @@ export class DelegationManager {
     const currentReq = this.requests.get(requestId);
     if (currentReq && currentReq.status === "pending") {
       currentReq.status = "failed";
-      this.onComplete?.(currentReq.channelId, requestId);
+      void this.onComplete?.(currentReq.channelId, requestId, "failed", undefined);
     }
   }
 

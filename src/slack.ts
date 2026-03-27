@@ -199,18 +199,28 @@ export function createSlackApp(
     else console.log(`[Bot] Delegation only — no text posted`);
   });
 
-  // Register delegation completion callback — enqueues a system trigger message
-  // so Claude sees the completed status in its preamble and notifies the channel.
+  // Register delegation completion callback — calls Claude directly with the result
+  // and posts the response to the channel without going through the queue.
   if (delegationManager) {
-    delegationManager.setOnComplete((channelId, requestId) => {
-      queue.enqueue({
-        channelId,
-        threadTs: `${Date.now() / 1000}`,
-        userId: "system",
-        userName: "시스템",
-        text: `[시스템: 의뢰 ${requestId} 처리가 완료되었습니다. 채널에 결과를 알려주세요.]`,
-        receivedAt: Date.now(),
-      });
+    delegationManager.setOnComplete(async (channelId, requestId, status, finalResult) => {
+      const preamble = delegationManager.getPreamble();
+      const resultText = finalResult ? finalResult.slice(0, 500) : "";
+      const systemPrompt = status === "completed"
+        ? `${preamble}[시스템: 서소영 의뢰(${requestId})가 완료됐습니다. 결과: ${resultText}. 채널에 레미엘 캐릭터로 알려주세요.]`
+        : `${preamble}[시스템: 서소영 의뢰(${requestId})가 실패했습니다. 채널에 레미엘 캐릭터로 알려주세요.]`;
+
+      try {
+        const response = await askClaude(config, systemPrompt);
+        if (!response.skipped && response.text) {
+          const textToPost = stripRequests(response.text);
+          if (textToPost) {
+            await app.client.chat.postMessage({ channel: channelId, text: textToPost });
+            console.log(`[Delegation] Notified channel (${status}): ${textToPost.slice(0, 50)}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[Delegation] Failed to notify channel:`, err);
+      }
     });
   }
 
