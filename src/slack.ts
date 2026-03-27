@@ -1,7 +1,7 @@
 import { App } from "@slack/bolt";
 import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
-import { askClaude, isNewSession, formatPrompt } from "./claude.js";
+import { askClaude, isNewSession, formatPrompt, tsToTime } from "./claude.js";
 import { TimingLogger } from "./timing.js";
 import { DelegationManager, parseRequests, stripRequests } from "./delegation.js";
 
@@ -56,10 +56,12 @@ async function fetchChannelContext(app: App, channelId: string): Promise<string>
     const messages = [...(result.messages ?? [])].reverse();
     const lines = messages
       .map((msg) => {
-        const userId = msg.user ?? "unknown";
+        const userId = msg.user ?? msg.bot_id ?? "unknown";
         const text = (msg.text ?? "").trim();
         if (!text) return null;
-        return `[${channelId}:${msg.ts ?? ""}] <${userId}>: ${text}`;
+        const time = tsToTime(msg.ts ?? "0");
+        const botTag = msg.bot_id ? " [봇]" : "";
+        return `[${channelId}:${time}] <${userId}>${botTag}: ${text}`;
       })
       .filter((line): line is string => line !== null);
 
@@ -144,6 +146,7 @@ export async function createSlackApp(
       msg.userId,
       msg.userName,
       msg.text,
+      msg.isBot,
     );
 
     console.log(`[Bot] Processing: ${msg.userName} > ${msg.text.slice(0, 50)}`);
@@ -281,6 +284,7 @@ export async function createSlackApp(
       userId,
       userName,
       text,
+      isBot: !!msg.bot_id,
       receivedAt: Date.now(),
     });
   });

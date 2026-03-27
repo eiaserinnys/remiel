@@ -4,6 +4,7 @@ export interface QueuedMessage {
   userId: string;
   userName: string;
   text: string;
+  isBot: boolean;
   receivedAt: number; // Date.now() ms when the message entered the queue
 }
 

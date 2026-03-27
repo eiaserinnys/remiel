@@ -76,12 +76,25 @@ export async function askClaude(
   return { text: trimmed, skipped: false, compacted };
 }
 
+/** Convert Slack ts (unix seconds) to KST HH:MM */
+export function tsToTime(ts: string): string {
+  const ms = parseFloat(ts) * 1000;
+  if (Number.isNaN(ms)) return "??:??";
+  const date = new Date(ms);
+  const kstH = (date.getUTCHours() + 9) % 24;
+  const mm = date.getUTCMinutes().toString().padStart(2, "0");
+  return `${kstH.toString().padStart(2, "0")}:${mm}`;
+}
+
 export function formatPrompt(
   channelId: string,
   threadTs: string,
   userId: string,
   userName: string,
   text: string,
+  isBot = false,
 ): string {
-  return `[${channelId}] [${threadTs}] [${userId}] [${userName}]\n${text}`;
+  const time = tsToTime(threadTs);
+  const botTag = isBot ? " [봇]" : "";
+  return `[${channelId}:${time}] <${userId}> [${userName}${botTag}]\n${text}`;
 }
