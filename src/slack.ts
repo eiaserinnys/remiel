@@ -127,9 +127,13 @@ export async function createSlackApp(
     socketMode: true,
   });
 
-  // Identify our own bot_id to avoid self-triggering
+  // Identify our own bot_id and user_id to avoid self-triggering and enable mention detection
   const authResult = await app.client.auth.test();
   const selfBotId = authResult.bot_id as string | undefined;
+  const selfBotUserId = authResult.user_id as string | undefined;
+  if (!selfBotUserId) {
+    throw new Error("[Bot] auth.test()가 user_id를 반환하지 않았습니다. 봇 초기화를 중단합니다.");
+  }
 
   const queue = new MessageQueue(async (msg: QueuedMessage) => {
     const dequeuedAt = Date.now();
@@ -175,7 +179,9 @@ export async function createSlackApp(
       ? `[지침: 최근 발언이 많았기 때문에 자신(레미엘)을 직접 부르는 메시지가 아니면 반드시 [SKIP]으로만 응답한다.]\n`
       : ``;
 
-    const prompt = preamble + skipDirective + formatPrompt(
+    const botIdDirective = `[시스템: 당신(레미엘)의 Slack User ID는 ${selfBotUserId}입니다. 메시지 텍스트에 <@${selfBotUserId}>가 없으면 직접 호출된 것이 아닙니다.]\n`;
+
+    const prompt = preamble + botIdDirective + skipDirective + formatPrompt(
       msg.channelId,
       msg.threadTs,
       msg.userId,
