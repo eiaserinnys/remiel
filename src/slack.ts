@@ -179,9 +179,14 @@ export async function createSlackApp(
       ? `[지침: 최근 발언이 많았기 때문에 자신(레미엘)을 직접 부르는 메시지가 아니면 반드시 [SKIP]으로만 응답한다.]\n`
       : ``;
 
-    const botIdDirective = `[시스템: 당신(레미엘)의 Slack User ID는 ${selfBotUserId}입니다. 메시지 텍스트에 <@${selfBotUserId}>가 없으면 직접 호출된 것이 아닙니다.]\n`;
+    // 새 세션 첫 메시지에만 봇 ID를 주입한다.
+    // askClaude() 내부에서 currentSessionId가 업데이트되므로, 호출 전에 평가해야 한다.
+    // needsContext가 이미 isNewSession()을 호출했으므로 그 값을 재사용한다.
+    const botIdNote = needsContext
+      ? `당신(레미엘)의 Slack User ID는 ${selfBotUserId}입니다.\n\n`
+      : ``;
 
-    const prompt = preamble + botIdDirective + skipDirective + formatPrompt(
+    const prompt = preamble + botIdNote + skipDirective + formatPrompt(
       msg.channelId,
       msg.threadTs,
       msg.userId,
