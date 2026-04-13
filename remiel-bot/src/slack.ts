@@ -381,6 +381,8 @@ export async function createSlackApp(
       : (evt.bot_profile?.name ?? evt.username ?? userId);
     const threadTs = evt.thread_ts ?? evt.ts;
 
+    if (!config.responseEnabled) return;
+
     queue.enqueue({
       channelId: evt.channel,
       threadTs,

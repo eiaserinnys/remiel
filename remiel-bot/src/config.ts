@@ -23,6 +23,7 @@ export interface Config {
   delegationDumpChannelId?: string;
   remielServerUrl?: string;
   remielApiKey?: string;
+  responseEnabled: boolean;
 }
 
 export function loadConfig(): Config {
@@ -41,5 +42,6 @@ export function loadConfig(): Config {
     delegationDumpChannelId: process.env["DELEGATION_DUMP_CHANNEL_ID"],
     remielServerUrl: process.env["REMIEL_SERVER_URL"],
     remielApiKey: process.env["REMIEL_API_KEY"],
+    responseEnabled: process.env["RESPONSE_ENABLED"] === "true",
   };
 }
