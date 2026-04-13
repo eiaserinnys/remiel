@@ -42,6 +42,8 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   const callbackUrl = process.env["SLACK_CALLBACK_URL"];
   const allowedTeamId = process.env["SLACK_ALLOWED_TEAM_ID"];
   const slackConfigured = isSlackConfigured();
+  // Use secure cookies only over HTTPS (production). False in local dev.
+  const isSecure = !!(callbackUrl?.startsWith("https"));
 
   // GET /api/auth/slack — redirect to Slack OAuth
   app.get("/api/auth/slack", async (_req: FastifyRequest, reply: FastifyReply) => {
@@ -58,6 +60,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     reply.setCookie(STATE_COOKIE, state, {
       httpOnly: true,
       sameSite: "lax",
+      secure: isSecure,
       maxAge: 600,
       path: "/",
     });
@@ -87,6 +90,10 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         return reply.redirect("/?auth_error=invalid_state");
       }
       reply.clearCookie(STATE_COOKIE, { path: "/" });
+
+      if (!code) {
+        return reply.redirect("/?auth_error=token_exchange_failed");
+      }
 
       // Exchange code for token
       const tokenRes = await fetch("https://slack.com/api/oauth.v2.access", {
@@ -146,6 +153,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       reply.setCookie(JWT_COOKIE, token, {
         httpOnly: true,
         sameSite: "lax",
+        secure: isSecure,
         maxAge: 60 * 60 * 24 * 7,
         path: "/",
       });
