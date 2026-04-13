@@ -53,7 +53,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     const state = crypto.randomBytes(16).toString("hex");
     const params = new URLSearchParams({
       client_id: clientId!,
-      scope: "identity.basic,identity.email,identity.avatar,identity.team",
+      user_scope: "identity.basic,identity.email,identity.avatar,identity.team",
       redirect_uri: callbackUrl!,
       state,
     });
