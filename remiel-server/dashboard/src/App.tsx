@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { Login } from './Login';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThreePanelLayout } from './components/Layout/ThreePanelLayout';
 import { MobileLayout } from './components/Layout/MobileLayout';
@@ -111,6 +112,9 @@ function AppInner() {
 }
 
 function App() {
+  if (window.location.pathname === '/login') {
+    return <Login />;
+  }
   return (
     <QueryClientProvider client={queryClient}>
       <AppInner />

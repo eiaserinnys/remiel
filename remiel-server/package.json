@@ -14,12 +14,14 @@
     "build:dashboard": "pnpm --filter remiel-dashboard build"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",
     "@fastify/static": "^9.1.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "cheerio": "^1.2.0",
     "dotenv": "^16.4.7",
     "fastify": "^5.3.3",
+    "jose": "^5.9.6",
     "pg": "^8.13.0"
   },
   "devDependencies": {
