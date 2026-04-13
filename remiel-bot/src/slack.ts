@@ -5,17 +5,8 @@ import { askClaude, isNewSession, formatPrompt, tsToDateTime } from "./claude.js
 import { TimingLogger } from "./timing.js";
 import { DelegationManager, parseRequests, stripRequests } from "./delegation.js";
 import { DeepThinkManager } from "./deepthink.js";
-
-interface SlackMessage {
-  channel: string;
-  user?: string;
-  bot_id?: string;
-  bot_profile?: { name?: string };
-  username?: string;
-  text?: string;
-  ts: string;
-  thread_ts?: string;
-}
+import { UserResolver } from "./user-resolver.js";
+import type { MessageForwarder } from "./forwarder.js";
 
 // Track recent response timestamps for frequency-aware intervention probability
 const recentResponses: number[] = [];
@@ -120,6 +111,7 @@ export async function createSlackApp(
   timingLogger: TimingLogger,
   delegationManager: DelegationManager | null = null,
   deepThinkManager: DeepThinkManager | null = null,
+  forwarder: MessageForwarder | null = null,
 ): Promise<App> {
   const app = new App({
     token: config.slackBotToken,
@@ -329,62 +321,96 @@ export async function createSlackApp(
     });
   }
 
-  // Resolve user display name from Slack API
-  const userNameCache = new Map<string, string>();
-
-  async function resolveUserName(userId: string): Promise<string> {
-    const cached = userNameCache.get(userId);
-    if (cached) return cached;
-
-    try {
-      const result = await app.client.users.info({ user: userId });
-      const name =
-        result.user?.profile?.display_name ||
-        result.user?.real_name ||
-        result.user?.name ||
-        userId;
-      userNameCache.set(userId, name);
-      return name;
-    } catch {
-      return userId;
-    }
-  }
+  // Shared user resolver for both message handling and forwarding
+  const userResolver = new UserResolver(app.client);
 
   const channelSet = new Set(config.slackChannelIds);
 
-  app.message(async ({ message }) => {
-    const msg = message as SlackMessage;
+  // Listen to all message events (including subtypes) for forwarding
+  app.event("message", async ({ event }) => {
+    const evt = event as any;
 
-    // Filter: only monitored channels
-    if (!channelSet.has(msg.channel)) return;
+    // Only monitored channels
+    if (!channelSet.has(evt.channel)) return;
 
-    // Filter: ignore own messages to prevent self-triggering
-    if (msg.bot_id && msg.bot_id === selfBotId) return;
+    // Forward message_changed
+    if (evt.subtype === "message_changed" && forwarder) {
+      const msg = evt.message;
+      forwarder
+        .forwardUpdate(evt.channel, msg.ts, {
+          content: msg.text,
+          source_edited: true,
+        })
+        .catch((err: unknown) => console.error("[Forwarder]", err));
+      return;
+    }
 
-    // Filter: ignore thread replies (main channel only)
-    if (msg.thread_ts) return;
+    // Forward message_deleted
+    if (evt.subtype === "message_deleted" && forwarder) {
+      forwarder
+        .forwardDelete(evt.channel, evt.deleted_ts)
+        .catch((err: unknown) => console.error("[Forwarder]", err));
+      return;
+    }
 
-    const text = msg.text;
+    // Skip other subtypes (bot_message is handled below via the normal path)
+    if (evt.subtype && evt.subtype !== "bot_message") return;
+
+    // Ignore own messages to prevent self-triggering
+    if (evt.bot_id && evt.bot_id === selfBotId) return;
+
+    // Fire-and-forget forwarding for normal messages
+    if (forwarder) {
+      forwarder.forwardMessage(evt).catch((err: unknown) => console.error("[Forwarder]", err));
+    }
+
+    // --- Existing bot logic below (unchanged) ---
+
+    // Ignore thread replies (main channel only)
+    if (evt.thread_ts) return;
+
+    const text = evt.text;
     if (!text || !text.trim()) return;
 
     // Bot messages have no user field — fall back to bot_id
-    const userId = msg.user ?? msg.bot_id;
+    const userId = evt.user ?? evt.bot_id;
     if (!userId) return;
 
-    const userName = msg.user
-      ? await resolveUserName(msg.user)
-      : (msg.bot_profile?.name ?? msg.username ?? userId);
-    const threadTs = msg.thread_ts ?? msg.ts;
+    const userName = evt.user
+      ? await userResolver.resolve(evt.user)
+      : (evt.bot_profile?.name ?? evt.username ?? userId);
+    const threadTs = evt.thread_ts ?? evt.ts;
 
     queue.enqueue({
-      channelId: msg.channel,
+      channelId: evt.channel,
       threadTs,
       userId,
       userName,
       text,
-      isBot: !!msg.bot_id,
+      isBot: !!evt.bot_id,
       receivedAt: Date.now(),
     });
+  });
+
+  // Reaction forwarding
+  app.event("reaction_added", async ({ event }) => {
+    if (!forwarder) return;
+    if (!channelSet.has(event.item.channel)) return;
+    forwarder
+      .forwardUpdate(event.item.channel, event.item.ts, {
+        reaction_add: { emoji: event.reaction, user: event.user },
+      })
+      .catch((err) => console.error("[Forwarder]", err));
+  });
+
+  app.event("reaction_removed", async ({ event }) => {
+    if (!forwarder) return;
+    if (!channelSet.has(event.item.channel)) return;
+    forwarder
+      .forwardUpdate(event.item.channel, event.item.ts, {
+        reaction_remove: { emoji: event.reaction, user: event.user },
+      })
+      .catch((err) => console.error("[Forwarder]", err));
   });
 
   return app;

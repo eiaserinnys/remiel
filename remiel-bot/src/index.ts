@@ -4,6 +4,8 @@ import { createSlackApp } from "./slack.js";
 import { TimingLogger } from "./timing.js";
 import { DelegationManager } from "./delegation.js";
 import { DeepThinkManager } from "./deepthink.js";
+import { MessageForwarder } from "./forwarder.js";
+import { UserResolver } from "./user-resolver.js";
 
 async function main() {
   const config = loadConfig();
@@ -35,10 +37,34 @@ async function main() {
 
   const deepThinkManager = new DeepThinkManager(config, config.deepThinkDumpChannelId);
 
-  const app = await createSlackApp(config, timingLogger, delegationManager, deepThinkManager);
+  const forwarder =
+    config.remielServerUrl && config.remielApiKey
+      ? new MessageForwarder(config.remielServerUrl, config.remielApiKey)
+      : null;
+
+  if (forwarder) {
+    console.log(`[Remiel] Forwarder enabled (server: ${config.remielServerUrl})`);
+  } else {
+    console.log(`[Remiel] Forwarder disabled (REMIEL_SERVER_URL/API_KEY not set)`);
+  }
+
+  const app = await createSlackApp(config, timingLogger, delegationManager, deepThinkManager, forwarder);
   deepThinkManager.setApp(app);
   delegationManager?.setApp(app);
+
+  // UserResolver needs app.client — inject after app creation
+  if (forwarder) {
+    forwarder.setUserResolver(new UserResolver(app.client));
+  }
+
   await app.start();
+
+  // Register monitored channels with remiel-server
+  if (forwarder) {
+    forwarder
+      .registerChannels(config.slackChannelIds, app.client)
+      .catch((err) => console.error("[Forwarder] Channel registration failed:", err));
+  }
 
   console.log(`[Remiel] Bot is running!`);
 }

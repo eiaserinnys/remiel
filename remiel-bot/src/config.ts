@@ -21,6 +21,8 @@ export interface Config {
   soulstreamAgentId?: string;
   deepThinkDumpChannelId?: string;
   delegationDumpChannelId?: string;
+  remielServerUrl?: string;
+  remielApiKey?: string;
 }
 
 export function loadConfig(): Config {
@@ -37,5 +39,7 @@ export function loadConfig(): Config {
     soulstreamAgentId: process.env["SOULSTREAM_AGENT_ID"],
     deepThinkDumpChannelId: process.env["DEEPTHINK_DUMP_CHANNEL_ID"],
     delegationDumpChannelId: process.env["DELEGATION_DUMP_CHANNEL_ID"],
+    remielServerUrl: process.env["REMIEL_SERVER_URL"],
+    remielApiKey: process.env["REMIEL_API_KEY"],
   };
 }
