@@ -1,3 +1,6 @@
 packages:
   - 'remiel-bot/'
   - 'remiel-server/'
+  - 'remiel-server/dashboard/'
+onlyBuiltDependencies:
+  - esbuild

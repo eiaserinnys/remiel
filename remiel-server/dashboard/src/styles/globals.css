@@ -1,0 +1,179 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'SF Pro Icons', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+
+  /* Status colors (remiel-specific) */
+  --color-status-pending: var(--status-pending);
+  --color-status-processing: var(--status-processing);
+  --color-status-done: var(--status-done);
+  --color-status-failed: var(--status-failed);
+
+  /* Apple border-radius scale */
+  --radius-apple-micro: 5px;
+  --radius-apple-button: 8px;
+  --radius-apple-comfortable: 11px;
+  --radius-apple-large: 12px;
+  --radius-apple-pill: 980px;
+
+  --shadow-card: var(--shadow-card-raw);
+  --shadow-hover: rgba(0, 0, 0, 0.32) 3px 5px 30px 0px;
+  --shadow-focus-ring: var(--shadow-focus-ring-raw);
+
+  --color-input-border: var(--input-border);
+
+  --font-size-body: 17px;
+  --font-size-caption: 14px;
+  --font-size-micro: 12px;
+}
+
+/* Light mode (default) */
+:root {
+  --status-pending: #f59e0b;
+  --status-processing: #3b82f6;
+  --status-done: #10b981;
+  --status-failed: #ef4444;
+
+  --accent: #f5f5f7;
+  --accent-foreground: #1d1d1f;
+  --background: #ffffff;
+  --border: #d2d2d7;
+  --brand: #0071e3;
+  --brand-foreground: #ffffff;
+  --card: #f5f5f7;
+  --card-foreground: #1d1d1f;
+  --foreground: #1d1d1f;
+  --input: #ffffff;
+  --input-border: #d2d2d7;
+  --muted: #f5f5f7;
+  --muted-foreground: rgba(0, 0, 0, 0.48);
+  --primary: #1d1d1f;
+  --primary-foreground: #ffffff;
+  --ring: #0071e3;
+  --shadow-focus-ring-raw: 0 0 0 3px rgba(0, 113, 227, 0.2);
+  --shadow-card-raw: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+}
+
+/* Dark mode */
+.dark {
+  --status-pending: #fbbf24;
+  --status-processing: #60a5fa;
+  --status-done: #34d399;
+  --status-failed: #f87171;
+
+  --accent: #272729;
+  --accent-foreground: #f5f5f7;
+  --background: #000000;
+  --border: #333336;
+  --brand: #2997ff;
+  --brand-foreground: #ffffff;
+  --card: #272729;
+  --card-foreground: #f5f5f7;
+  --foreground: #f5f5f7;
+  --input: #1c1c1e;
+  --input-border: #333336;
+  --muted: #1d1d1f;
+  --muted-foreground: rgba(255, 255, 255, 0.48);
+  --primary: #f5f5f7;
+  --primary-foreground: #000000;
+  --ring: #2997ff;
+  --shadow-focus-ring-raw: 0 0 0 3px rgba(41, 151, 255, 0.25);
+  --shadow-card-raw: rgba(0, 0, 0, 0.5) 3px 5px 30px 0px;
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.47;
+    font-weight: 400;
+    letter-spacing: -0.374px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); border-radius: 3px; }
+  :is(.dark *)::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+}
+
+@layer components {
+  .prose-remiel {
+    color: var(--foreground);
+    line-height: 1.7;
+  }
+  .prose-remiel h1, .prose-remiel h2, .prose-remiel h3, .prose-remiel h4 {
+    color: var(--foreground);
+    margin-top: 1.25em;
+    margin-bottom: 0.5em;
+  }
+  .prose-remiel h1 { font-size: 3.5rem; font-weight: 600; line-height: 1.07; letter-spacing: -0.28px; }
+  .prose-remiel h2 { font-size: 2.5rem; font-weight: 600; line-height: 1.10; letter-spacing: normal; }
+  .prose-remiel h3 { font-size: 1.75rem; font-weight: 400; line-height: 1.14; letter-spacing: 0.196px; }
+  .prose-remiel h4 { font-size: 1.31rem; font-weight: 700; line-height: 1.19; letter-spacing: 0.231px; }
+  .prose-remiel p { margin-bottom: 0.75em; }
+  .prose-remiel :first-child { margin-top: 0; }
+  .prose-remiel p:last-child { margin-bottom: 0; }
+  .prose-remiel ul, .prose-remiel ol { padding-left: 1.5em; margin-bottom: 0.75em; }
+  .prose-remiel li { margin-bottom: 0.25em; }
+  .prose-remiel code {
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    font-size: 0.875em;
+    font-family: var(--font-mono);
+    color: var(--foreground);
+  }
+  .prose-remiel pre {
+    background: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75em 1em;
+    overflow-x: auto;
+    margin-bottom: 0.75em;
+  }
+  .prose-remiel pre code { background: none; border: none; padding: 0; font-size: 0.875em; }
+  .prose-remiel blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 1em;
+    color: var(--muted-foreground);
+    margin: 0.75em 0;
+  }
+  .prose-remiel a {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
+
+@media (max-width: 767px) {
+  body {
+    font-size: var(--font-size-body);
+    -webkit-text-size-adjust: 100%;
+  }
+}
