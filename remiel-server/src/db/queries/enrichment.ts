@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { EnrichmentStatus } from "../../types/index.js";
+import type { EnrichmentStatus, EnrichmentQueueItem } from "../../types/index.js";
 
 export async function enqueue(
   pool: pg.Pool,
@@ -24,4 +24,15 @@ export async function getStatus(pool: pg.Pool): Promise<EnrichmentStatus> {
     }
   }
   return result;
+}
+
+export async function retryItem(pool: pg.Pool, id: string): Promise<EnrichmentQueueItem | null> {
+  const { rows } = await pool.query<EnrichmentQueueItem>(
+    `UPDATE enrichment_queue
+     SET status = 'pending', retry_count = 0, error = NULL
+     WHERE id = $1 AND status = 'failed'
+     RETURNING *`,
+    [id],
+  );
+  return rows[0] ?? null;
 }

@@ -6,6 +6,7 @@ import { MessageService } from "../src/services/MessageService.js";
 import { ChannelService } from "../src/services/ChannelService.js";
 import { InterpretationService } from "../src/services/InterpretationService.js";
 import { EnrichmentService } from "../src/services/EnrichmentService.js";
+import { EventBus } from "../src/shared/EventBus.js";
 import { migrate } from "../src/db/migrate.js";
 import type { FastifyInstance } from "fastify";
 
@@ -18,6 +19,7 @@ if (!TEST_DATABASE_URL.includes("test")) {
 
 let pool: pg.Pool;
 let app: FastifyInstance;
+let eventBus: EventBus;
 
 const API_KEY = "test-api-key-12345";
 
@@ -27,13 +29,14 @@ beforeAll(async () => {
 
   await migrate(pool);
 
-  const messageService = new MessageService(pool);
-  const channelService = new ChannelService(pool);
-  const interpretationService = new InterpretationService(pool);
+  eventBus = new EventBus();
   const enrichmentService = new EnrichmentService(pool);
+  const messageService = new MessageService(pool, eventBus, enrichmentService);
+  const channelService = new ChannelService(pool);
+  const interpretationService = new InterpretationService(pool, eventBus);
 
   app = await createServer();
-  registerRoutes(app, { messageService, channelService, interpretationService, enrichmentService });
+  registerRoutes(app, { messageService, channelService, interpretationService, enrichmentService, eventBus });
   await app.ready();
 });
 
@@ -348,5 +351,169 @@ describe("Enrichment status", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.payload);
     expect(body).toEqual({ pending: 0, processing: 0, done: 0, failed: 0 });
+  });
+});
+
+describe("Auto-enqueue on message store", () => {
+  beforeEach(async () => {
+    await inject("POST", "/api/channels", { id: "C600", name: "enqueue-test" });
+  });
+
+  it("enqueues URL found in message content", async () => {
+    await inject("POST", "/api/messages", {
+      channel_id: "C600",
+      ts: "11000.001",
+      user_id: "U001",
+      user_name: "alice",
+      content: "Check https://example.com/article",
+    });
+
+    const statusRes = await inject("GET", "/api/enrichment/status");
+    const status = JSON.parse(statusRes.payload);
+    expect(status.pending).toBeGreaterThanOrEqual(1);
+  });
+
+  it("enqueues attachment with url property", async () => {
+    await inject("POST", "/api/messages", {
+      channel_id: "C600",
+      ts: "11000.002",
+      user_id: "U001",
+      user_name: "alice",
+      content: "see attached",
+      attachments: [{ url: "https://files.example.com/doc.pdf" }],
+    });
+
+    const statusRes = await inject("GET", "/api/enrichment/status");
+    const status = JSON.parse(statusRes.payload);
+    expect(status.pending).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not enqueue when no URLs or attachments", async () => {
+    // Clear enrichment queue first
+    await pool.query("DELETE FROM enrichment_queue");
+
+    await inject("POST", "/api/messages", {
+      channel_id: "C600",
+      ts: "11000.003",
+      user_id: "U001",
+      user_name: "alice",
+      content: "plain text message",
+    });
+
+    const statusRes = await inject("GET", "/api/enrichment/status");
+    const status = JSON.parse(statusRes.payload);
+    expect(status.pending).toBe(0);
+  });
+});
+
+describe("Enrichment retry", () => {
+  it("POST /api/enrichment/:id/retry resets failed item to pending", async () => {
+    await inject("POST", "/api/channels", { id: "C700", name: "retry-test" });
+    const msgRes = await inject("POST", "/api/messages", {
+      channel_id: "C700",
+      ts: "12000.001",
+      user_id: "U001",
+      user_name: "alice",
+      content: "https://retry-test.com",
+    });
+    const messageId = JSON.parse(msgRes.payload).id;
+
+    // Get the queue item id
+    const { rows: queueRows } = await pool.query(
+      "SELECT id FROM enrichment_queue WHERE message_id = $1",
+      [messageId],
+    );
+    expect(queueRows.length).toBeGreaterThanOrEqual(1);
+    const queueId = queueRows[0].id;
+
+    // Manually set to failed
+    await pool.query(
+      "UPDATE enrichment_queue SET status = 'failed', error = 'test error' WHERE id = $1",
+      [queueId],
+    );
+
+    // Retry
+    const retryRes = await inject("POST", `/api/enrichment/${queueId}/retry`);
+    expect(retryRes.statusCode).toBe(200);
+    const retried = JSON.parse(retryRes.payload);
+    expect(retried.status).toBe("pending");
+    expect(retried.error).toBeNull();
+  });
+
+  it("POST /api/enrichment/:id/retry returns 404 for non-failed item", async () => {
+    const retryRes = await inject("POST", "/api/enrichment/00000000-0000-0000-0000-000000000000/retry");
+    expect(retryRes.statusCode).toBe(404);
+  });
+});
+
+describe("SSE / EventBus integration", () => {
+  it("eventBus receives message:created when storing a message via API", async () => {
+    await inject("POST", "/api/channels", { id: "C800", name: "sse-test" });
+
+    const received: unknown[] = [];
+    const unsubscribe = eventBus.subscribe((e) => received.push(e));
+
+    await inject("POST", "/api/messages", {
+      channel_id: "C800",
+      ts: "13000.001",
+      user_id: "U001",
+      user_name: "alice",
+      content: "event test",
+    });
+
+    unsubscribe();
+
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    const messageCreated = received.find((e: any) => e.type === "message:created");
+    expect(messageCreated).toBeDefined();
+  });
+
+  it("eventBus receives interpretation:created when storing via API", async () => {
+    await inject("POST", "/api/channels", { id: "C801", name: "sse-interp" });
+    const msgRes = await inject("POST", "/api/messages", {
+      channel_id: "C801",
+      ts: "14000.001",
+      user_id: "U001",
+      user_name: "alice",
+      content: "interp event test",
+    });
+    const messageId = JSON.parse(msgRes.payload).id;
+
+    const received: unknown[] = [];
+    const unsubscribe = eventBus.subscribe((e) => received.push(e));
+
+    await inject("POST", "/api/interpretations", {
+      channel_id: "C801",
+      message_id: messageId,
+      content: "test summary",
+    });
+
+    unsubscribe();
+
+    const interpCreated = received.find((e: any) => e.type === "interpretation:created");
+    expect(interpCreated).toBeDefined();
+  });
+
+  it("eventBus receives message:updated when updating via API", async () => {
+    await inject("POST", "/api/channels", { id: "C802", name: "sse-update" });
+    await inject("POST", "/api/messages", {
+      channel_id: "C802",
+      ts: "15000.001",
+      user_id: "U001",
+      user_name: "alice",
+      content: "original",
+    });
+
+    const received: unknown[] = [];
+    const unsubscribe = eventBus.subscribe((e) => received.push(e));
+
+    await inject("PATCH", "/api/messages/C802/15000.001", {
+      content: "updated content",
+    });
+
+    unsubscribe();
+
+    const messageUpdated = received.find((e: any) => e.type === "message:updated");
+    expect(messageUpdated).toBeDefined();
   });
 });

@@ -2,16 +2,31 @@ import pg from "pg";
 import type { Message, StoreMessageInput, MessageUpdate, GetMessagesOptions } from "../types/index.js";
 import * as messageQueries from "../db/queries/messages.js";
 import * as interpretationQueries from "../db/queries/interpretations.js";
+import type { EventBus } from "../shared/EventBus.js";
+import type { EnrichmentService } from "./EnrichmentService.js";
+
+const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
 
 export class MessageService {
-  constructor(private pool: pg.Pool) {}
+  constructor(
+    private pool: pg.Pool,
+    private eventBus?: EventBus,
+    private enrichmentService?: EnrichmentService,
+  ) {}
 
   async storeMessage(msg: StoreMessageInput): Promise<Message> {
-    return messageQueries.upsertMessage(this.pool, msg);
+    const message = await messageQueries.upsertMessage(this.pool, msg);
+    this.eventBus?.emit({ type: "message:created", data: message });
+    await this.autoEnqueue(message, msg.attachments);
+    return message;
   }
 
   async storeMessages(msgs: StoreMessageInput[]): Promise<Message[]> {
-    return messageQueries.upsertMessages(this.pool, msgs);
+    const results: Message[] = [];
+    for (const msg of msgs) {
+      results.push(await this.storeMessage(msg));
+    }
+    return results;
   }
 
   async updateMessage(channelId: string, ts: string, updates: MessageUpdate): Promise<Message> {
@@ -19,6 +34,7 @@ export class MessageService {
     if (!result) {
       throw new Error(`Message not found: channel=${channelId}, ts=${ts}`);
     }
+    this.eventBus?.emit({ type: "message:updated", data: result });
     return result;
   }
 
@@ -77,5 +93,25 @@ export class MessageService {
     }
 
     return lines.join("\n");
+  }
+
+  private async autoEnqueue(message: Message, attachments?: unknown[]): Promise<void> {
+    if (!this.enrichmentService) return;
+
+    // Extract URLs from content
+    const urls = message.content.match(URL_REGEX) ?? [];
+    for (const url of urls) {
+      await this.enrichmentService.enqueue(message.id, "link_crawl", url);
+    }
+
+    // Enqueue attachments that have url properties
+    if (attachments && Array.isArray(attachments)) {
+      for (const attachment of attachments) {
+        const att = attachment as Record<string, unknown>;
+        if (typeof att.url === "string") {
+          await this.enrichmentService.enqueue(message.id, "attachment", att.url);
+        }
+      }
+    }
   }
 }

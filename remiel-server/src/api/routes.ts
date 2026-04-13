@@ -3,16 +3,18 @@ import type { MessageService } from "../services/MessageService.js";
 import type { ChannelService } from "../services/ChannelService.js";
 import type { InterpretationService } from "../services/InterpretationService.js";
 import type { EnrichmentService } from "../services/EnrichmentService.js";
+import type { EventBus } from "../shared/EventBus.js";
 
 export interface Services {
   messageService: MessageService;
   channelService: ChannelService;
   interpretationService: InterpretationService;
   enrichmentService: EnrichmentService;
+  eventBus?: EventBus;
 }
 
 export function registerRoutes(app: FastifyInstance, services: Services): void {
-  const { messageService, channelService, interpretationService, enrichmentService } = services;
+  const { messageService, channelService, interpretationService, enrichmentService, eventBus } = services;
 
   // Health
   app.get("/api/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
@@ -135,4 +137,44 @@ export function registerRoutes(app: FastifyInstance, services: Services): void {
   app.get("/api/enrichment/status", async () => {
     return enrichmentService.getStatus();
   });
+
+  app.post<{
+    Params: { id: string };
+  }>("/api/enrichment/:id/retry", async (req, reply) => {
+    const { id } = req.params;
+    const result = await enrichmentService.retry(id);
+    if (!result) {
+      reply.code(404).send({ error: "Item not found or not in failed state" });
+      return;
+    }
+    return result;
+  });
+
+  // SSE events stream
+  if (eventBus) {
+    app.get("/events", async (req, reply) => {
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      // Send initial heartbeat
+      reply.raw.write(": connected\n\n");
+
+      const unsubscribe = eventBus.subscribe((event) => {
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      });
+
+      // Keep connection alive with periodic heartbeats
+      const heartbeat = setInterval(() => {
+        reply.raw.write(": heartbeat\n\n");
+      }, 30_000);
+
+      req.raw.on("close", () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+      });
+    });
+  }
 }

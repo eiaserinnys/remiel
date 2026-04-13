@@ -86,3 +86,32 @@ export interface GetMessagesOptions {
   to?: string;
   limit?: number;
 }
+
+export interface EnrichmentQueueItem {
+  id: string;
+  message_id: string;
+  type: "link_crawl" | "attachment";
+  target: string;
+  status: "pending" | "processing" | "done" | "failed";
+  result: unknown;
+  error: string | null;
+  retry_count: number;
+  max_retries: number;
+  processed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CrawlResult {
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  excerpt: string | null;
+  fetched_at: string;
+}
+
+export interface AttachmentResult {
+  content_type: string | null;
+  content_length: number | null;
+  verified_at: string;
+}

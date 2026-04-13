@@ -30,15 +30,28 @@ CREATE INDEX IF NOT EXISTS idx_messages_channel_ts ON messages (channel_id, ts);
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (channel_id, thread_ts) WHERE thread_ts IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS enrichment_queue (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id  UUID NOT NULL REFERENCES messages(id),
-  type        TEXT NOT NULL CHECK (type IN ('link_crawl', 'attachment')),
-  target      TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'done', 'failed')),
-  result      JSONB,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id    UUID NOT NULL REFERENCES messages(id),
+  type          TEXT NOT NULL CHECK (type IN ('link_crawl', 'attachment')),
+  target        TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+  result        JSONB,
+  error         TEXT,
+  retry_count   INTEGER NOT NULL DEFAULT 0,
+  max_retries   INTEGER NOT NULL DEFAULT 3,
+  processed_at  TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration: add columns if they don't exist (idempotent)
+DO $$ BEGIN
+  ALTER TABLE enrichment_queue ADD COLUMN IF NOT EXISTS error TEXT;
+  ALTER TABLE enrichment_queue ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE enrichment_queue ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3;
+  ALTER TABLE enrichment_queue ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_enrichment_status ON enrichment_queue (status);
 

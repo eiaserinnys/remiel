@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { EnrichmentStatus } from "../types/index.js";
+import type { EnrichmentStatus, EnrichmentQueueItem } from "../types/index.js";
 import * as enrichmentQueries from "../db/queries/enrichment.js";
 
 export class EnrichmentService {
@@ -11,5 +11,9 @@ export class EnrichmentService {
 
   async getStatus(): Promise<EnrichmentStatus> {
     return enrichmentQueries.getStatus(this.pool);
+  }
+
+  async retry(id: string): Promise<EnrichmentQueueItem | null> {
+    return enrichmentQueries.retryItem(this.pool, id);
   }
 }
