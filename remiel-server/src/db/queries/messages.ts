@@ -27,7 +27,17 @@ export async function upsertMessage(pool: pg.Pool, input: StoreMessageInput): Pr
       input.is_bot ?? false,
     ],
   );
-  return rows[0];
+  const msg = rows[0];
+
+  // Backfill avatar_url to all older messages from the same user
+  if (msg.avatar_url && msg.user_id) {
+    pool.query(
+      `UPDATE messages SET avatar_url = $1 WHERE user_id = $2 AND avatar_url IS NULL`,
+      [msg.avatar_url, msg.user_id],
+    ).catch(() => {});  // fire-and-forget; don't block the insert
+  }
+
+  return msg;
 }
 
 export async function upsertMessages(pool: pg.Pool, inputs: StoreMessageInput[]): Promise<Message[]> {
