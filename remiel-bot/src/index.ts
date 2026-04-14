@@ -13,7 +13,11 @@ async function main() {
   console.log(`[Remiel] Starting...`);
   console.log(`[Remiel] Model: ${config.claudeModel}`);
   console.log(`[Remiel] Workspace: ${config.workspaceDir}`);
-  console.log(`[Remiel] Monitoring channels: ${config.slackChannelIds.join(", ")}`);
+  if (config.slackChannelIds.length > 0) {
+    console.log(`[Remiel] Response channels: ${config.slackChannelIds.join(", ")}`);
+  } else {
+    console.log(`[Remiel] Record-only mode (no response channels configured)`);
+  }
 
   const timingLogger = new TimingLogger(config.workspaceDir);
   await timingLogger.initialize();
@@ -52,15 +56,17 @@ async function main() {
   deepThinkManager.setApp(app);
   delegationManager?.setApp(app);
 
-  // UserResolver needs app.client — inject after app creation
+  // UserResolver and WebClient need app.client — inject after app creation
   if (forwarder) {
     forwarder.setUserResolver(new UserResolver(app.client));
+    forwarder.setWebClient(app.client);
   }
 
   await app.start();
 
-  // Register monitored channels with remiel-server
-  if (forwarder) {
+  // Register explicitly configured channels with remiel-server
+  // (other channels are auto-registered on first message)
+  if (forwarder && config.slackChannelIds.length > 0) {
     forwarder
       .registerChannels(config.slackChannelIds, app.client)
       .catch((err) => console.error("[Forwarder] Channel registration failed:", err));

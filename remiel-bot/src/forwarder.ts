@@ -22,6 +22,7 @@ interface MessageEvent {
 
 export class MessageForwarder {
   private userResolver!: UserResolver;
+  private registeredChannels = new Set<string>();
 
   constructor(
     private serverUrl: string,
@@ -33,6 +34,11 @@ export class MessageForwarder {
   }
 
   async forwardMessage(event: MessageEvent): Promise<void> {
+    // Auto-register channel on first message
+    if (!this.registeredChannels.has(event.channel)) {
+      this.autoRegisterChannel(event.channel).catch(() => {});
+    }
+
     const userName = event.user
       ? await this.userResolver.resolve(event.user)
       : undefined;
@@ -89,10 +95,40 @@ export class MessageForwarder {
     );
   }
 
+  private webClient: WebClient | null = null;
+
+  setWebClient(client: WebClient): void {
+    this.webClient = client;
+  }
+
+  private async autoRegisterChannel(channelId: string): Promise<void> {
+    this.registeredChannels.add(channelId);
+    if (!this.webClient) return;
+    try {
+      const info = await this.webClient.conversations.info({ channel: channelId });
+      await fetch(`${this.serverUrl}/api/channels`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": this.apiKey,
+        },
+        body: JSON.stringify({
+          id: channelId,
+          name: info.channel?.name ?? channelId,
+          source: "slack",
+        }),
+      });
+      console.log(`[Forwarder] Auto-registered channel ${info.channel?.name ?? channelId}`);
+    } catch (err) {
+      console.error(`[Forwarder] Failed to auto-register channel ${channelId}:`, err);
+    }
+  }
+
   async registerChannels(
     channelIds: string[],
     client: WebClient,
   ): Promise<void> {
+    this.webClient = client;
     for (const id of channelIds) {
       try {
         const info = await client.conversations.info({ channel: id });
@@ -108,6 +144,7 @@ export class MessageForwarder {
             source: "slack",
           }),
         });
+        this.registeredChannels.add(id);
       } catch (err) {
         console.error(`[Forwarder] Failed to register channel ${id}:`, err);
       }

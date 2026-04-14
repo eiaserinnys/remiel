@@ -127,7 +127,8 @@ export async function createSlackApp(
     throw new Error("[Bot] auth.test()가 user_id를 반환하지 않았습니다. 봇 초기화를 중단합니다.");
   }
 
-  // Auto-join monitored channels so the bot receives message events via SocketMode
+  // Auto-join response channels so the bot can respond via SocketMode
+  // (Record-only channels don't need auto-join — the bot is invited manually)
   for (const channelId of config.slackChannelIds) {
     try {
       await app.client.conversations.join({ channel: channelId });
@@ -339,14 +340,14 @@ export async function createSlackApp(
   // Shared user resolver for both message handling and forwarding
   const userResolver = new UserResolver(app.client);
 
-  const channelSet = new Set(config.slackChannelIds);
+  // Response channels: where the bot actively responds (empty = record-only mode)
+  const responseChannelSet = new Set(config.slackChannelIds);
 
-  // Listen to all message events (including subtypes) for forwarding
+  // Listen to all message events from all channels the bot is in
   app.event("message", async ({ event }) => {
     const evt = event as any;
 
-    // Only monitored channels
-    if (!channelSet.has(evt.channel)) return;
+    // --- Forwarding: records ALL channels the bot is a member of ---
 
     // Forward message_changed
     if (evt.subtype === "message_changed" && forwarder) {
@@ -357,7 +358,8 @@ export async function createSlackApp(
           source_edited: true,
         })
         .catch((err: unknown) => console.error("[Forwarder]", err));
-      return;
+      // Don't return — let response logic run if applicable
+      if (!responseChannelSet.has(evt.channel)) return;
     }
 
     // Forward message_deleted
@@ -382,7 +384,8 @@ export async function createSlackApp(
       forwarder.forwardMessage(evt).catch((err: unknown) => console.error("[Forwarder]", err));
     }
 
-    // --- Bot response logic below: more selective filtering ---
+    // --- Bot response logic: only for configured channels ---
+    if (!responseChannelSet.has(evt.channel)) return;
 
     // Skip subtypes that the bot doesn't respond to
     if (evt.subtype && evt.subtype !== "bot_message") return;
@@ -420,10 +423,9 @@ export async function createSlackApp(
     });
   });
 
-  // Reaction forwarding
+  // Reaction forwarding — records all channels (same as message forwarding)
   app.event("reaction_added", async ({ event }) => {
     if (!forwarder) return;
-    if (!channelSet.has(event.item.channel)) return;
     forwarder
       .forwardUpdate(event.item.channel, event.item.ts, {
         reaction_add: { emoji: event.reaction, user: event.user },
@@ -433,7 +435,6 @@ export async function createSlackApp(
 
   app.event("reaction_removed", async ({ event }) => {
     if (!forwarder) return;
-    if (!channelSet.has(event.item.channel)) return;
     forwarder
       .forwardUpdate(event.item.channel, event.item.ts, {
         reaction_remove: { emoji: event.reaction, user: event.user },

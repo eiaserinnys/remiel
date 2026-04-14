@@ -30,7 +30,7 @@ export function loadConfig(): Config {
   return {
     slackBotToken: requireEnv("SLACK_BOT_TOKEN"),
     slackAppToken: requireEnv("SLACK_APP_TOKEN"),
-    slackChannelIds: requireEnv("SLACK_CHANNEL_IDS").split(",").map((s) => s.trim()),
+    slackChannelIds: (process.env["SLACK_CHANNEL_IDS"] ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     claudeModel: process.env["CLAUDE_MODEL"] ?? "claude-sonnet-4-6",
     workspaceDir: requireEnv("WORKSPACE_DIR"),
     botName: process.env["BOT_NAME"] ?? "레미엘",
