@@ -17,6 +17,8 @@ interface MessageEvent {
   user?: string;
   text?: string;
   bot_id?: string;
+  username?: string;
+  bot_profile?: { name?: string; icons?: { image_48?: string } };
   files?: SlackFile[];
 }
 
@@ -43,6 +45,16 @@ export class MessageForwarder {
       ? await this.userResolver.resolve(event.user)
       : undefined;
 
+    // For bot_message subtype, fall back to bot_id/username/bot_profile
+    const userId = event.user ?? event.bot_id ?? "unknown";
+    const userName = userInfo?.name
+      ?? event.bot_profile?.name
+      ?? event.username
+      ?? userId;
+    const avatarUrl = userInfo?.avatarUrl
+      ?? event.bot_profile?.icons?.image_48
+      ?? null;
+
     await fetch(`${this.serverUrl}/api/messages`, {
       method: "POST",
       headers: {
@@ -53,10 +65,10 @@ export class MessageForwarder {
         channel_id: event.channel,
         ts: event.ts,
         thread_ts: event.thread_ts ?? null,
-        user_id: event.user ?? null,
-        user_name: userInfo?.name ?? null,
-        avatar_url: userInfo?.avatarUrl ?? null,
-        content: event.text ?? null,
+        user_id: userId,
+        user_name: userName,
+        avatar_url: avatarUrl,
+        content: event.text ?? "",
         attachments: (event.files ?? []).map((f) => ({
           name: f.name,
           type: f.filetype,
