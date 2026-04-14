@@ -127,6 +127,21 @@ export async function createSlackApp(
     throw new Error("[Bot] auth.test()가 user_id를 반환하지 않았습니다. 봇 초기화를 중단합니다.");
   }
 
+  // Auto-join monitored channels so the bot receives message events via SocketMode
+  for (const channelId of config.slackChannelIds) {
+    try {
+      await app.client.conversations.join({ channel: channelId });
+      console.log(`[Bot] Joined channel ${channelId}`);
+    } catch (err: unknown) {
+      const slackErr = err as { data?: { error?: string } };
+      if (slackErr.data?.error === "already_in_channel") {
+        console.log(`[Bot] Already in channel ${channelId}`);
+      } else {
+        console.error(`[Bot] Failed to join channel ${channelId}:`, err);
+      }
+    }
+  }
+
   const queue = new MessageQueue(async (msg: QueuedMessage) => {
     const dequeuedAt = Date.now();
     const timingCtx = {
