@@ -368,16 +368,27 @@ export async function createSlackApp(
       return;
     }
 
-    // Skip other subtypes (bot_message is handled below via the normal path)
+    // Administrative subtypes — skip entirely (no forwarding, no bot logic)
+    const adminSubtypes = new Set([
+      "channel_join", "channel_leave", "channel_topic",
+      "channel_purpose", "channel_name", "channel_archive", "channel_unarchive",
+      "pinned_item", "unpinned_item",
+    ]);
+    if (evt.subtype && adminSubtypes.has(evt.subtype)) return;
+
+    // Fire-and-forget forwarding — captures all content messages
+    // (file_share, bot_message, me_message, thread_broadcast, etc.)
+    if (forwarder) {
+      forwarder.forwardMessage(evt).catch((err: unknown) => console.error("[Forwarder]", err));
+    }
+
+    // --- Bot response logic below: more selective filtering ---
+
+    // Skip subtypes that the bot doesn't respond to
     if (evt.subtype && evt.subtype !== "bot_message") return;
 
     // Ignore own messages to prevent self-triggering
     if (evt.bot_id && evt.bot_id === selfBotId) return;
-
-    // Fire-and-forget forwarding for normal messages
-    if (forwarder) {
-      forwarder.forwardMessage(evt).catch((err: unknown) => console.error("[Forwarder]", err));
-    }
 
     // --- Existing bot logic below (unchanged) ---
 
