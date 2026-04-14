@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { MessageService } from "../services/MessageService.js";
 import type { ChannelService } from "../services/ChannelService.js";
@@ -11,10 +14,14 @@ export interface Services {
   interpretationService: InterpretationService;
   enrichmentService: EnrichmentService;
   eventBus?: EventBus;
+  slackBotToken?: string;
 }
 
+const PROXY_USER_AGENT = "Remiel/1.0 (file proxy)";
+const PROXY_TIMEOUT_MS = 15_000;
+
 export function registerRoutes(app: FastifyInstance, services: Services): void {
-  const { messageService, channelService, interpretationService, enrichmentService, eventBus } = services;
+  const { messageService, channelService, interpretationService, enrichmentService, eventBus, slackBotToken } = services;
 
   // Health
   app.get("/api/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
@@ -37,6 +44,7 @@ export function registerRoutes(app: FastifyInstance, services: Services): void {
       thread_ts?: string;
       user_id: string;
       user_name: string;
+      avatar_url?: string;
       content: string;
       attachments?: unknown[];
       reactions?: { emoji: string; users: string[] }[];
@@ -155,6 +163,107 @@ export function registerRoutes(app: FastifyInstance, services: Services): void {
       return;
     }
     return result;
+  });
+
+  // File proxy — serves Slack private files with bot token auth + disk cache
+  const FILE_CACHE_DIR = path.join(process.cwd(), ".cache", "files");
+  fs.mkdirSync(FILE_CACHE_DIR, { recursive: true });
+
+  app.get<{
+    Querystring: { url: string };
+  }>("/api/files/proxy", async (req, reply) => {
+    const { url } = req.query;
+    if (!url) {
+      return reply.code(400).send({ error: "url parameter required" });
+    }
+
+    // Only proxy Slack file URLs
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      return reply.code(400).send({ error: "Invalid URL" });
+    }
+    if (hostname !== "files.slack.com") {
+      return reply.code(403).send({ error: "Only Slack file URLs can be proxied" });
+    }
+
+    // Check disk cache
+    const cacheKey = crypto.createHash("sha256").update(url).digest("hex");
+    const metaPath = path.join(FILE_CACHE_DIR, `${cacheKey}.meta.json`);
+    const dataPath = path.join(FILE_CACHE_DIR, `${cacheKey}.data`);
+
+    if (fs.existsSync(metaPath) && fs.existsSync(dataPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as { contentType: string };
+      const stat = fs.statSync(dataPath);
+      reply.raw.writeHead(200, {
+        "Content-Type": meta.contentType,
+        "Content-Length": String(stat.size),
+        "Cache-Control": "private, max-age=86400",
+        "X-Cache": "HIT",
+      });
+      fs.createReadStream(dataPath).pipe(reply.raw);
+      return;
+    }
+
+    // Fetch from Slack
+    const headers: Record<string, string> = { "User-Agent": PROXY_USER_AGENT };
+    if (slackBotToken) {
+      headers["Authorization"] = `Bearer ${slackBotToken}`;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+
+    try {
+      const upstream = await fetch(url, {
+        headers,
+        signal: controller.signal,
+        redirect: "follow",
+      });
+
+      if (!upstream.ok) {
+        return reply.code(upstream.status).send({ error: `Upstream: ${upstream.statusText}` });
+      }
+
+      const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
+
+      if (upstream.body) {
+        // Stream to disk cache + response simultaneously
+        const reader = upstream.body.getReader();
+        const chunks: Buffer[] = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(Buffer.from(value));
+        }
+
+        const fullBuffer = Buffer.concat(chunks);
+
+        // Write cache files
+        fs.writeFileSync(dataPath, fullBuffer);
+        fs.writeFileSync(metaPath, JSON.stringify({ contentType, url, cachedAt: new Date().toISOString() }));
+
+        reply.raw.writeHead(200, {
+          "Content-Type": contentType,
+          "Content-Length": String(fullBuffer.length),
+          "Cache-Control": "private, max-age=86400",
+          "X-Cache": "MISS",
+        });
+        reply.raw.end(fullBuffer);
+      } else {
+        reply.raw.writeHead(200, { "Content-Type": contentType });
+        reply.raw.end();
+      }
+    } catch (err) {
+      if (!reply.raw.headersSent) {
+        const msg = err instanceof Error ? err.message : "Proxy error";
+        reply.code(502).send({ error: msg });
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   });
 
   // SSE events stream

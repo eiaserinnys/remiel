@@ -21,7 +21,8 @@ async function main() {
   const interpretationService = new InterpretationService(pool, eventBus);
 
   const server = await createServer();
-  registerRoutes(server, { messageService, channelService, interpretationService, enrichmentService, eventBus });
+  const slackBotToken = process.env.SLACK_BOT_TOKEN;
+  registerRoutes(server, { messageService, channelService, interpretationService, enrichmentService, eventBus, slackBotToken });
 
   // Start enrichment worker in background
   const worker = new EnrichmentWorker(pool, eventBus, {

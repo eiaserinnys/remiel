@@ -4,7 +4,24 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Bot, User, MessageSquare, Brain, Paperclip, Link, FileText, Image, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
-import type { Message, Interpretation, EnrichmentItem, CrawlResult, AttachmentResult } from '../api/client';
+import type { Message, Interpretation, EnrichmentItem, CrawlResult, AttachmentResult, Attachment } from '../api/client';
+
+const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
+
+function isImageAttachment(att: Attachment): boolean {
+  if (att.type && IMAGE_EXTENSIONS.has(att.type.toLowerCase())) return true;
+  const ext = att.name.split('.').pop()?.toLowerCase() ?? '';
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
+function proxyUrl(url: string): string {
+  try {
+    if (new URL(url).hostname === 'files.slack.com') {
+      return api.fileProxyUrl(url);
+    }
+  } catch { /* not a valid URL */ }
+  return url;
+}
 
 interface MessageDetailProps {
   channelId: string | null;
@@ -70,9 +87,13 @@ export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
         {/* Message content */}
         <div className="px-4 py-4 border-b border-border">
           <div className="flex items-center gap-2 mb-3">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-muted">
-              {message.is_bot ? <Bot size={16} className="text-muted-foreground" /> : <User size={16} className="text-muted-foreground" />}
-            </div>
+            {message.avatar_url ? (
+              <img src={message.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover" />
+            ) : (
+              <div className="w-9 h-9 rounded-full flex items-center justify-center bg-muted">
+                {message.is_bot ? <Bot size={16} className="text-muted-foreground" /> : <User size={16} className="text-muted-foreground" />}
+              </div>
+            )}
             <div>
               <div className="text-sm font-semibold">{message.user_name}</div>
               <div className="text-[11px] text-muted-foreground">
@@ -85,6 +106,33 @@ export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
               {message.content}
             </ReactMarkdown>
           </div>
+          {/* Inline image attachments */}
+          {message.attachments?.length > 0 && (
+            <div className="mt-3 flex flex-col gap-2">
+              {message.attachments.map((att, i) => (
+                isImageAttachment(att) ? (
+                  <a key={i} href={proxyUrl(att.url)} target="_blank" rel="noopener noreferrer"
+                    className="block">
+                    <img
+                      src={proxyUrl(att.url)}
+                      alt={att.name}
+                      className="max-w-full max-h-[300px] rounded-lg border border-border object-contain"
+                      loading="lazy"
+                    />
+                  </a>
+                ) : (
+                  <a key={i} href={proxyUrl(att.url)} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-xs text-brand hover:underline bg-muted px-3 py-2 rounded-lg border border-border w-fit">
+                    <FileText size={14} />
+                    <span>{att.name}</span>
+                    {att.size != null && (
+                      <span className="text-muted-foreground">{formatFileSize(att.size)}</span>
+                    )}
+                  </a>
+                )
+              ))}
+            </div>
+          )}
           {message.reactions && message.reactions.length > 0 && (
             <div className="flex gap-1.5 mt-3 flex-wrap">
               {message.reactions.map((r, i) => (

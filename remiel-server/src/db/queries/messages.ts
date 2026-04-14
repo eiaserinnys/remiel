@@ -3,11 +3,12 @@ import type { Message, StoreMessageInput, MessageUpdate, GetMessagesOptions, Rea
 
 export async function upsertMessage(pool: pg.Pool, input: StoreMessageInput): Promise<Message> {
   const { rows } = await pool.query<Message>(
-    `INSERT INTO messages (channel_id, ts, thread_ts, user_id, user_name, content, attachments, reactions, is_bot)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO messages (channel_id, ts, thread_ts, user_id, user_name, avatar_url, content, attachments, reactions, is_bot)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (channel_id, ts) DO UPDATE SET
        content = EXCLUDED.content,
        user_name = EXCLUDED.user_name,
+       avatar_url = COALESCE(EXCLUDED.avatar_url, messages.avatar_url),
        attachments = EXCLUDED.attachments,
        reactions = EXCLUDED.reactions,
        is_bot = EXCLUDED.is_bot,
@@ -19,6 +20,7 @@ export async function upsertMessage(pool: pg.Pool, input: StoreMessageInput): Pr
       input.thread_ts ?? null,
       input.user_id,
       input.user_name,
+      input.avatar_url ?? null,
       input.content,
       JSON.stringify(input.attachments ?? []),
       JSON.stringify(input.reactions ?? []),

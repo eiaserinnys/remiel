@@ -7,6 +7,13 @@ export interface Channel {
   created_at: string;
 }
 
+export interface Attachment {
+  url: string;
+  name: string;
+  size?: number;
+  type?: string;
+}
+
 export interface Message {
   id: string;
   channel_id: string;
@@ -14,8 +21,9 @@ export interface Message {
   thread_ts: string | null;
   user_id: string;
   user_name: string;
+  avatar_url: string | null;
   content: string;
-  attachments: unknown[];
+  attachments: Attachment[];
   reactions: { emoji: string; users: string[] }[];
   is_bot: boolean;
   created_at: string;
@@ -100,4 +108,8 @@ export const api = {
 
   getEnrichments: (messageId: string) =>
     fetchJSON<EnrichmentItem[]>(`/api/messages/${messageId}/enrichments`),
+
+  /** Returns a proxied URL for Slack private files */
+  fileProxyUrl: (url: string) =>
+    `/api/files/proxy?url=${encodeURIComponent(url)}`,
 };

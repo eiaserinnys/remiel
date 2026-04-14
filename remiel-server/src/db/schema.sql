@@ -46,6 +46,11 @@ CREATE TABLE IF NOT EXISTS enrichment_queue (
 
 -- Migration: add columns if they don't exist (idempotent)
 DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
   ALTER TABLE enrichment_queue ADD COLUMN IF NOT EXISTS error TEXT;
   ALTER TABLE enrichment_queue ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE enrichment_queue ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 3;

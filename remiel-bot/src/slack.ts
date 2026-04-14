@@ -405,9 +405,10 @@ export async function createSlackApp(
     const userId = evt.user ?? evt.bot_id;
     if (!userId) return;
 
-    const userName = evt.user
+    const userInfo = evt.user
       ? await userResolver.resolve(evt.user)
-      : (evt.bot_profile?.name ?? evt.username ?? userId);
+      : null;
+    const userName = userInfo?.name ?? evt.bot_profile?.name ?? evt.username ?? userId;
     const threadTs = evt.thread_ts ?? evt.ts;
 
     if (!config.responseEnabled) return;

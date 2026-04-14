@@ -19,6 +19,7 @@ export interface Message {
   thread_ts: string | null;
   user_id: string;
   user_name: string;
+  avatar_url: string | null;
   content: string;
   attachments: unknown[];
   reactions: Reaction[];
@@ -40,6 +41,7 @@ export interface StoreMessageInput {
   thread_ts?: string;
   user_id: string;
   user_name: string;
+  avatar_url?: string;
   content: string;
   attachments?: unknown[];
   reactions?: Reaction[];

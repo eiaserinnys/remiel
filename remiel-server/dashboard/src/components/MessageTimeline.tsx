@@ -107,9 +107,13 @@ export function MessageTimeline({ channelId, selectedMessageId, onSelectMessage 
                       : 'hover:bg-accent',
                   )}
                 >
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center bg-muted shrink-0 mt-0.5">
-                    {msg.is_bot ? <Bot size={14} className="text-muted-foreground" /> : <User size={14} className="text-muted-foreground" />}
-                  </div>
+                  {msg.avatar_url ? (
+                    <img src={msg.avatar_url} alt="" className="w-6 h-6 rounded-full shrink-0 mt-0.5 object-cover" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center bg-muted shrink-0 mt-0.5">
+                      {msg.is_bot ? <Bot size={14} className="text-muted-foreground" /> : <User size={14} className="text-muted-foreground" />}
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className={clsx(

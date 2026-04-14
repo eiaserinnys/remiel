@@ -39,7 +39,7 @@ export class MessageForwarder {
       this.autoRegisterChannel(event.channel).catch(() => {});
     }
 
-    const userName = event.user
+    const userInfo = event.user
       ? await this.userResolver.resolve(event.user)
       : undefined;
 
@@ -54,7 +54,8 @@ export class MessageForwarder {
         ts: event.ts,
         thread_ts: event.thread_ts ?? null,
         user_id: event.user ?? null,
-        user_name: userName ?? null,
+        user_name: userInfo?.name ?? null,
+        avatar_url: userInfo?.avatarUrl ?? null,
         content: event.text ?? null,
         attachments: (event.files ?? []).map((f) => ({
           name: f.name,
