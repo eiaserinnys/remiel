@@ -236,6 +236,258 @@ describe("EnrichmentWorker", () => {
     });
   });
 
+  describe("Slack auth headers", () => {
+    it("adds Authorization header for Slack file URLs when token is set", async () => {
+      const queueItem = {
+        id: "eq-slack-1",
+        message_id: "msg-slack-1",
+        type: "link_crawl",
+        target: "https://files.slack.com/files-pri/T123/download/file.txt",
+        status: "processing",
+        result: null,
+        error: null,
+        retry_count: 0,
+        max_retries: 3,
+        processed_at: null,
+        created_at: "now",
+        updated_at: "now",
+      };
+
+      const queryFn = mockQuerySequence(
+        EMPTY_ROWS,
+        { rows: [queueItem] },
+        EMPTY_ROWS,
+      );
+
+      const pool = createMockPool(queryFn);
+      const worker = new EnrichmentWorker(pool, eventBus, {
+        pollIntervalMs: 10,
+        slackBotToken: "xoxb-test-token",
+      });
+
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => "<html><head><title>Test</title></head><body>Hello</body></html>",
+        headers: new Headers(),
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const startPromise = worker.start();
+      await new Promise((r) => setTimeout(r, 50));
+      worker.stop();
+      await startPromise;
+
+      const fetchCall = fetchSpy.mock.calls.find(
+        (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("files.slack.com"),
+      );
+      expect(fetchCall).toBeDefined();
+      const headers = fetchCall![1].headers as Record<string, string>;
+      expect(headers["Authorization"]).toBe("Bearer xoxb-test-token");
+
+      vi.unstubAllGlobals();
+    });
+
+    it("does not add Authorization header for non-Slack URLs", async () => {
+      const queueItem = {
+        id: "eq-noslack-1",
+        message_id: "msg-noslack-1",
+        type: "link_crawl",
+        target: "https://example.com/page",
+        status: "processing",
+        result: null,
+        error: null,
+        retry_count: 0,
+        max_retries: 3,
+        processed_at: null,
+        created_at: "now",
+        updated_at: "now",
+      };
+
+      const queryFn = mockQuerySequence(
+        EMPTY_ROWS,
+        { rows: [queueItem] },
+        EMPTY_ROWS,
+      );
+
+      const pool = createMockPool(queryFn);
+      const worker = new EnrichmentWorker(pool, eventBus, {
+        pollIntervalMs: 10,
+        slackBotToken: "xoxb-test-token",
+      });
+
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => "<html><head><title>Example</title></head><body>Content</body></html>",
+        headers: new Headers(),
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const startPromise = worker.start();
+      await new Promise((r) => setTimeout(r, 50));
+      worker.stop();
+      await startPromise;
+
+      const fetchCall = fetchSpy.mock.calls.find(
+        (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("example.com"),
+      );
+      expect(fetchCall).toBeDefined();
+      const headers = fetchCall![1].headers as Record<string, string>;
+      expect(headers["Authorization"]).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("does not add Authorization header when no token is configured", async () => {
+      const queueItem = {
+        id: "eq-notoken-1",
+        message_id: "msg-notoken-1",
+        type: "link_crawl",
+        target: "https://files.slack.com/files-pri/T123/download/file.txt",
+        status: "processing",
+        result: null,
+        error: null,
+        retry_count: 0,
+        max_retries: 3,
+        processed_at: null,
+        created_at: "now",
+        updated_at: "now",
+      };
+
+      const queryFn = mockQuerySequence(
+        EMPTY_ROWS,
+        { rows: [queueItem] },
+        EMPTY_ROWS,
+      );
+
+      const pool = createMockPool(queryFn);
+      const worker = new EnrichmentWorker(pool, eventBus, { pollIntervalMs: 10 });
+
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => "<html><head><title>Login</title></head><body>Sign in</body></html>",
+        headers: new Headers(),
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const startPromise = worker.start();
+      await new Promise((r) => setTimeout(r, 50));
+      worker.stop();
+      await startPromise;
+
+      const fetchCall = fetchSpy.mock.calls.find(
+        (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("files.slack.com"),
+      );
+      expect(fetchCall).toBeDefined();
+      const headers = fetchCall![1].headers as Record<string, string>;
+      expect(headers["Authorization"]).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("does not leak token when files.slack.com appears in non-hostname position", async () => {
+      const queueItem = {
+        id: "eq-trick-1",
+        message_id: "msg-trick-1",
+        type: "link_crawl",
+        target: "https://evil.com/redirect?to=files.slack.com",
+        status: "processing",
+        result: null,
+        error: null,
+        retry_count: 0,
+        max_retries: 3,
+        processed_at: null,
+        created_at: "now",
+        updated_at: "now",
+      };
+
+      const queryFn = mockQuerySequence(
+        EMPTY_ROWS,
+        { rows: [queueItem] },
+        EMPTY_ROWS,
+      );
+
+      const pool = createMockPool(queryFn);
+      const worker = new EnrichmentWorker(pool, eventBus, {
+        pollIntervalMs: 10,
+        slackBotToken: "xoxb-test-token",
+      });
+
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => "<html><head><title>Evil</title></head><body>Trap</body></html>",
+        headers: new Headers(),
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const startPromise = worker.start();
+      await new Promise((r) => setTimeout(r, 50));
+      worker.stop();
+      await startPromise;
+
+      const fetchCall = fetchSpy.mock.calls.find(
+        (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("evil.com"),
+      );
+      expect(fetchCall).toBeDefined();
+      const headers = fetchCall![1].headers as Record<string, string>;
+      expect(headers["Authorization"]).toBeUndefined();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("adds Authorization header for attachment HEAD requests to Slack", async () => {
+      const queueItem = {
+        id: "eq-slack-att-1",
+        message_id: "msg-slack-att-1",
+        type: "attachment",
+        target: "https://files.slack.com/files-pri/T123/download/image.png",
+        status: "processing",
+        result: null,
+        error: null,
+        retry_count: 0,
+        max_retries: 3,
+        processed_at: null,
+        created_at: "now",
+        updated_at: "now",
+      };
+
+      const queryFn = mockQuerySequence(
+        EMPTY_ROWS,
+        { rows: [queueItem] },
+        EMPTY_ROWS,
+      );
+
+      const pool = createMockPool(queryFn);
+      const worker = new EnrichmentWorker(pool, eventBus, {
+        pollIntervalMs: 10,
+        slackBotToken: "xoxb-test-token",
+      });
+
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({
+          "content-type": "image/png",
+          "content-length": "54321",
+        }),
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const startPromise = worker.start();
+      await new Promise((r) => setTimeout(r, 50));
+      worker.stop();
+      await startPromise;
+
+      const fetchCall = fetchSpy.mock.calls.find(
+        (c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("files.slack.com"),
+      );
+      expect(fetchCall).toBeDefined();
+      expect(fetchCall![1].method).toBe("HEAD");
+      const headers = fetchCall![1].headers as Record<string, string>;
+      expect(headers["Authorization"]).toBe("Bearer xoxb-test-token");
+
+      vi.unstubAllGlobals();
+    });
+  });
+
   it("stop() terminates the polling loop", async () => {
     const queryFn = vi.fn().mockResolvedValue(EMPTY_ROWS);
 

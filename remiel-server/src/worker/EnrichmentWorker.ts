@@ -9,13 +9,30 @@ const FETCH_TIMEOUT_MS = 10_000;
 export class EnrichmentWorker {
   private running = false;
   private pollIntervalMs: number;
+  private slackBotToken?: string;
 
   constructor(
     private pool: pg.Pool,
     private eventBus: EventBus,
-    opts?: { pollIntervalMs?: number },
+    opts?: { pollIntervalMs?: number; slackBotToken?: string },
   ) {
     this.pollIntervalMs = opts?.pollIntervalMs ?? 5000;
+    this.slackBotToken = opts?.slackBotToken;
+  }
+
+  private getHeaders(url: string): Record<string, string> {
+    const headers: Record<string, string> = { "User-Agent": USER_AGENT };
+    if (this.slackBotToken) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname === "files.slack.com") {
+          headers["Authorization"] = `Bearer ${this.slackBotToken}`;
+        }
+      } catch {
+        // malformed URL — no auth header
+      }
+    }
+    return headers;
   }
 
   async start(): Promise<void> {
@@ -99,7 +116,7 @@ export class EnrichmentWorker {
 
     try {
       const response = await fetch(url, {
-        headers: { "User-Agent": USER_AGENT },
+        headers: this.getHeaders(url),
         signal: controller.signal,
         redirect: "follow",
       });
@@ -147,7 +164,7 @@ export class EnrichmentWorker {
     try {
       const response = await fetch(url, {
         method: "HEAD",
-        headers: { "User-Agent": USER_AGENT },
+        headers: this.getHeaders(url),
         signal: controller.signal,
       });
 

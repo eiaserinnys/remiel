@@ -24,7 +24,9 @@ async function main() {
   registerRoutes(server, { messageService, channelService, interpretationService, enrichmentService, eventBus });
 
   // Start enrichment worker in background
-  const worker = new EnrichmentWorker(pool, eventBus);
+  const worker = new EnrichmentWorker(pool, eventBus, {
+    slackBotToken: process.env.SLACK_BOT_TOKEN,
+  });
   worker.start().catch((err) => {
     console.error("[EnrichmentWorker] Fatal error:", err);
   });
