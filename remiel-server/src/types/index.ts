@@ -26,6 +26,7 @@ export interface Message {
   is_bot: boolean;
   is_deleted: boolean;
   source_edited: boolean;
+  enrichment_count: number;
   created_at: string;
   updated_at: string;
 }

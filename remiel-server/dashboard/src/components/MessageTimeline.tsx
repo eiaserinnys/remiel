@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Bot, User } from 'lucide-react';
+import { Bot, User, Paperclip } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '../api/client';
 import type { Message } from '../api/client';
@@ -125,6 +125,11 @@ export function MessageTimeline({ channelId, selectedMessageId, onSelectMessage 
                       <span className="text-[11px] text-muted-foreground shrink-0">
                         {formatTime(msg.created_at || msg.ts)}
                       </span>
+                      {msg.enrichment_count > 0 && (
+                        <span className="text-muted-foreground shrink-0" title={`${msg.enrichment_count} enrichment(s)`}>
+                          <Paperclip size={12} />
+                        </span>
+                      )}
                       {msg.thread_ts && msg.thread_ts !== msg.ts && (
                         <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-[5px] shrink-0">
                           thread

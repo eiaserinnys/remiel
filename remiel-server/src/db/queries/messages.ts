@@ -166,7 +166,10 @@ export async function getMessages(
   params.push(limit);
 
   const { rows } = await pool.query<Message>(
-    `SELECT * FROM messages WHERE ${conditions.join(" AND ")} ORDER BY ts ASC LIMIT $${paramIdx}`,
+    `SELECT m.*,
+       (SELECT COUNT(*)::int FROM enrichment_queue eq WHERE eq.message_id = m.id) AS enrichment_count
+     FROM messages m
+     WHERE ${conditions.join(" AND ")} ORDER BY ts ASC LIMIT $${paramIdx}`,
     params,
   );
   return rows;
@@ -174,7 +177,9 @@ export async function getMessages(
 
 export async function getThread(pool: pg.Pool, channelId: string, threadTs: string): Promise<Message[]> {
   const { rows } = await pool.query<Message>(
-    `SELECT * FROM messages
+    `SELECT m.*,
+       (SELECT COUNT(*)::int FROM enrichment_queue eq WHERE eq.message_id = m.id) AS enrichment_count
+     FROM messages m
      WHERE channel_id = $1 AND (ts = $2 OR thread_ts = $2) AND is_deleted = false
      ORDER BY ts ASC`,
     [channelId, threadTs],
