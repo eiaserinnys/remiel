@@ -8,7 +8,7 @@ export function StatusBar() {
     refetchInterval: 10_000,
   });
 
-  const queue = data?.queue ?? { pending: 0, processing: 0, done: 0, failed: 0 };
+  const queue = data ?? { pending: 0, processing: 0, done: 0, failed: 0 };
 
   return (
     <div className="h-8 px-4 flex items-center gap-4 text-[11px] text-muted-foreground border-t border-border bg-card shrink-0">

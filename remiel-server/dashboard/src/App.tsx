@@ -46,6 +46,7 @@ function AppInner() {
       case 'enrichment:completed':
       case 'enrichment:failed':
         queryClient.invalidateQueries({ queryKey: ['enrichment-status'] });
+        queryClient.invalidateQueries({ queryKey: ['enrichments'] });
         break;
       case 'interpretation:created':
         queryClient.invalidateQueries({ queryKey: ['interpretations'] });

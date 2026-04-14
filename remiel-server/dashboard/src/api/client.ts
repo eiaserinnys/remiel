@@ -34,21 +34,35 @@ export interface Interpretation {
 }
 
 export interface EnrichmentStatus {
-  queue: {
-    pending: number;
-    processing: number;
-    done: number;
-    failed: number;
-  };
-  items: {
-    id: string;
-    channel_id: string;
-    thread_ts: string;
-    status: string;
-    created_at: string;
-    updated_at: string;
-    error?: string;
-  }[];
+  pending: number;
+  processing: number;
+  done: number;
+  failed: number;
+}
+
+export interface CrawlResult {
+  title: string | null;
+  description: string | null;
+  image: string | null;
+  excerpt: string | null;
+  fetched_at: string;
+}
+
+export interface AttachmentResult {
+  content_type: string | null;
+  content_length: number | null;
+  verified_at: string;
+}
+
+export interface EnrichmentItem {
+  id: string;
+  message_id: string;
+  type: 'link_crawl' | 'attachment';
+  target: string;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  result: CrawlResult | AttachmentResult | null;
+  error: string | null;
+  created_at: string;
 }
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -83,4 +97,7 @@ export const api = {
     fetchJSON<Interpretation[]>(`/api/channels/${channelId}/threads/${threadTs}/interpretations`),
 
   getEnrichmentStatus: () => fetchJSON<EnrichmentStatus>('/api/enrichment/status'),
+
+  getEnrichments: (messageId: string) =>
+    fetchJSON<EnrichmentItem[]>(`/api/messages/${messageId}/enrichments`),
 };

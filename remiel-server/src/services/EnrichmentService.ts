@@ -13,6 +13,10 @@ export class EnrichmentService {
     return enrichmentQueries.getStatus(this.pool);
   }
 
+  async getByMessage(messageId: string): Promise<EnrichmentQueueItem[]> {
+    return enrichmentQueries.getByMessage(this.pool, messageId);
+  }
+
   async retry(id: string): Promise<EnrichmentQueueItem | null> {
     return enrichmentQueries.retryItem(this.pool, id);
   }

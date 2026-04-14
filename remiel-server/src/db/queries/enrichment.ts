@@ -26,6 +26,14 @@ export async function getStatus(pool: pg.Pool): Promise<EnrichmentStatus> {
   return result;
 }
 
+export async function getByMessage(pool: pg.Pool, messageId: string): Promise<EnrichmentQueueItem[]> {
+  const { rows } = await pool.query<EnrichmentQueueItem>(
+    `SELECT * FROM enrichment_queue WHERE message_id = $1 ORDER BY created_at`,
+    [messageId],
+  );
+  return rows;
+}
+
 export async function retryItem(pool: pg.Pool, id: string): Promise<EnrichmentQueueItem | null> {
   const { rows } = await pool.query<EnrichmentQueueItem>(
     `UPDATE enrichment_queue

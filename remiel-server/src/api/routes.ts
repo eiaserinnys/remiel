@@ -134,6 +134,13 @@ export function registerRoutes(app: FastifyInstance, services: Services): void {
   });
 
   // Enrichment
+  app.get<{
+    Params: { messageId: string };
+  }>("/api/messages/:messageId/enrichments", async (req) => {
+    const { messageId } = req.params;
+    return enrichmentService.getByMessage(messageId);
+  });
+
   app.get("/api/enrichment/status", async () => {
     return enrichmentService.getStatus();
   });
