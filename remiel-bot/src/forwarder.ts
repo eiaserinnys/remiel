@@ -36,6 +36,12 @@ export class MessageForwarder {
   }
 
   async forwardMessage(event: MessageEvent): Promise<void> {
+    // Guard: skip events without identifiable sender (e.g. malformed or partial payloads)
+    if (!event.user && !event.bot_id) {
+      console.warn(`[Forwarder] Skipping event without user/bot_id: channel=${event.channel} subtype=${(event as any).subtype ?? "none"} ts=${event.ts}`);
+      return;
+    }
+
     // Auto-register channel on first message
     if (!this.registeredChannels.has(event.channel)) {
       this.autoRegisterChannel(event.channel).catch(() => {});
@@ -46,7 +52,7 @@ export class MessageForwarder {
       : undefined;
 
     // For bot_message subtype, fall back to bot_id/username/bot_profile
-    const userId = event.user ?? event.bot_id ?? "unknown";
+    const userId = event.user ?? event.bot_id!; // bot_id guaranteed by guard above
     const userName = userInfo?.name
       ?? event.bot_profile?.name
       ?? event.username
