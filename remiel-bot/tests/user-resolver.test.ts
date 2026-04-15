@@ -17,14 +17,16 @@ describe("UserResolver", () => {
     const client = createMockClient({
       U001: {
         user: {
-          profile: { display_name: "홍길동" },
+          profile: { display_name: "홍길동", image_48: "https://img/48.png" },
           real_name: "Gil-dong Hong",
           name: "hong",
         },
       },
     });
     const resolver = new UserResolver(client);
-    expect(await resolver.resolve("U001")).toBe("홍길동");
+    const result = await resolver.resolve("U001");
+    expect(result.name).toBe("홍길동");
+    expect(result.avatarUrl).toBe("https://img/48.png");
   });
 
   it("display_name이 없으면 real_name을 반환한다", async () => {
@@ -38,7 +40,9 @@ describe("UserResolver", () => {
       },
     });
     const resolver = new UserResolver(client);
-    expect(await resolver.resolve("U002")).toBe("Jane Doe");
+    const result = await resolver.resolve("U002");
+    expect(result.name).toBe("Jane Doe");
+    expect(result.avatarUrl).toBeNull();
   });
 
   it("display_name, real_name 모두 없으면 name을 반환한다", async () => {
@@ -52,13 +56,17 @@ describe("UserResolver", () => {
       },
     });
     const resolver = new UserResolver(client);
-    expect(await resolver.resolve("U003")).toBe("fallback_name");
+    const result = await resolver.resolve("U003");
+    expect(result.name).toBe("fallback_name");
+    expect(result.avatarUrl).toBeNull();
   });
 
   it("API 호출 실패 시 userId를 그대로 반환한다", async () => {
     const client = createMockClient({}); // no responses → throws
     const resolver = new UserResolver(client);
-    expect(await resolver.resolve("U999")).toBe("U999");
+    const result = await resolver.resolve("U999");
+    expect(result.name).toBe("U999");
+    expect(result.avatarUrl).toBeNull();
   });
 
   it("캐시가 동작한다 — 같은 userId로 두 번 호출하면 API는 한 번만 호출된다", async () => {

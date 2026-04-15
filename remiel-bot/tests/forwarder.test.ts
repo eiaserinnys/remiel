@@ -5,9 +5,9 @@ import { UserResolver } from "../src/user-resolver.js";
 const SERVER_URL = "http://localhost:3120";
 const API_KEY = "test-api-key";
 
-function createMockResolver(nameMap: Record<string, string> = {}): UserResolver {
+function createMockResolver(nameMap: Record<string, { name: string; avatarUrl: string | null }> = {}): UserResolver {
   return {
-    resolve: vi.fn(async (userId: string) => nameMap[userId] ?? userId),
+    resolve: vi.fn(async (userId: string) => nameMap[userId] ?? { name: userId, avatarUrl: null }),
   } as unknown as UserResolver;
 }
 
@@ -35,7 +35,9 @@ describe("MessageForwarder", () => {
 
   describe("forwardMessage", () => {
     it("일반 사용자 메시지를 POST /api/messages 로 포워딩한다", async () => {
-      const resolver = createMockResolver({ U001: "홍길동" });
+      const resolver = createMockResolver({
+        U001: { name: "홍길동", avatarUrl: "https://img/48.png" },
+      });
       const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
       forwarder.setUserResolver(resolver);
 
@@ -57,6 +59,7 @@ describe("MessageForwarder", () => {
       expect(body.ts).toBe("1234.5678");
       expect(body.user_id).toBe("U001");
       expect(body.user_name).toBe("홍길동");
+      expect(body.avatar_url).toBe("https://img/48.png");
       expect(body.content).toBe("안녕하세요");
       expect(body.is_bot).toBe(false);
       expect(body.thread_ts).toBeNull();
@@ -72,16 +75,68 @@ describe("MessageForwarder", () => {
         ts: "1234.5678",
         bot_id: "B001",
         text: "봇 메시지",
+        bot_profile: { name: "TestBot", icons: { image_48: "https://bot/icon.png" } },
       });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body.user_id).toBeNull();
-      expect(body.user_name).toBeNull();
+      expect(body.user_id).toBe("B001");
+      expect(body.user_name).toBe("TestBot");
+      expect(body.avatar_url).toBe("https://bot/icon.png");
       expect(body.is_bot).toBe(true);
     });
 
+    it("user/bot_id 둘 다 없는 이벤트는 skip하고 warn 로그를 출력한다", async () => {
+      const resolver = createMockResolver();
+      const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
+      forwarder.setUserResolver(resolver);
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await forwarder.forwardMessage({
+        channel: "C123",
+        ts: "9999.0001",
+        text: "orphan message",
+      });
+
+      // fetch가 호출되지 않아야 한다 (API 전송 없음)
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      // warn 로그가 출력되어야 한다
+      expect(warnSpy).toHaveBeenCalledOnce();
+      expect(warnSpy.mock.calls[0][0]).toContain("[Forwarder] Skipping event without user/bot_id");
+      expect(warnSpy.mock.calls[0][0]).toContain("C123");
+
+      warnSpy.mockRestore();
+    });
+
+    it("file_share subtype — text 없어도 user 있으면 정상 포워딩", async () => {
+      const resolver = createMockResolver({
+        U001: { name: "사용자", avatarUrl: null },
+      });
+      const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
+      forwarder.setUserResolver(resolver);
+
+      await forwarder.forwardMessage({
+        channel: "C123",
+        ts: "1234.5678",
+        user: "U001",
+        files: [
+          { name: "photo.jpg", filetype: "jpg", url_private: "https://files.slack.com/photo.jpg", size: 2048 },
+        ],
+      });
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.user_id).toBe("U001");
+      expect(body.content).toBe("");
+      expect(body.attachments).toHaveLength(1);
+      expect(body.attachments[0].name).toBe("photo.jpg");
+    });
+
     it("스레드 답글의 thread_ts를 포함한다", async () => {
-      const resolver = createMockResolver({ U001: "사용자" });
+      const resolver = createMockResolver({
+        U001: { name: "사용자", avatarUrl: null },
+      });
       const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
       forwarder.setUserResolver(resolver);
 
@@ -98,7 +153,9 @@ describe("MessageForwarder", () => {
     });
 
     it("파일 첨부를 attachments로 변환한다", async () => {
-      const resolver = createMockResolver({ U001: "사용자" });
+      const resolver = createMockResolver({
+        U001: { name: "사용자", avatarUrl: null },
+      });
       const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
       forwarder.setUserResolver(resolver);
 

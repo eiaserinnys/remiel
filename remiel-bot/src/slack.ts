@@ -343,6 +343,26 @@ export async function createSlackApp(
   // Response channels: where the bot actively responds (empty = record-only mode)
   const responseChannelSet = new Set(config.slackChannelIds);
 
+  // --- WebSocket health monitor ---
+  // Track last event timestamp; if no events for MAX_SILENCE_MS, force exit
+  // so Haniel (restart_delay: 5) can restart the process.
+  let lastEventAt = Date.now();
+  const HEALTH_CHECK_INTERVAL_MS = 60_000; // check every 1 minute
+  const MAX_SILENCE_MS = 300_000; // 5 minutes without events → exit
+
+  app.use(async ({ next }) => {
+    lastEventAt = Date.now();
+    await next();
+  });
+
+  setInterval(() => {
+    const silenceMs = Date.now() - lastEventAt;
+    if (silenceMs > MAX_SILENCE_MS) {
+      console.error(`[Bot] No events for ${Math.round(silenceMs / 1000)}s — forcing exit for Haniel restart`);
+      process.exit(1);
+    }
+  }, HEALTH_CHECK_INTERVAL_MS);
+
   // Listen to all message events from all channels the bot is in
   app.event("message", async ({ event }) => {
     const evt = event as any;
@@ -358,8 +378,7 @@ export async function createSlackApp(
           source_edited: true,
         })
         .catch((err: unknown) => console.error("[Forwarder]", err));
-      // Don't return — let response logic run if applicable
-      if (!responseChannelSet.has(evt.channel)) return;
+      return; // message_changed는 forwardUpdate에서 처리 완료 — forwardMessage로 fall through 금지
     }
 
     // Forward message_deleted
