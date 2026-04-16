@@ -214,12 +214,12 @@ describe("Message CRUD", () => {
 
     // Verify it's gone from normal listing
     const listRes = await inject("GET", "/api/channels/C300/messages");
-    const msgs = JSON.parse(listRes.payload);
-    const deleted = msgs.find((m: { ts: string }) => m.ts === "6000.001");
+    const page = JSON.parse(listRes.payload);
+    const deleted = page.messages.find((m: { ts: string }) => m.ts === "6000.001");
     expect(deleted).toBeUndefined();
   });
 
-  it("GET /api/channels/:channelId/messages returns messages", async () => {
+  it("GET /api/channels/:channelId/messages returns a page of messages", async () => {
     await inject("POST", "/api/messages", {
       channel_id: "C300",
       ts: "7000.001",
@@ -238,7 +238,130 @@ describe("Message CRUD", () => {
     const res = await inject("GET", "/api/channels/C300/messages?limit=10");
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.payload);
-    expect(body).toHaveLength(2);
+    expect(body.messages).toHaveLength(2);
+    // ASC 정렬 보장
+    expect(body.messages[0].ts).toBe("7000.001");
+    expect(body.messages[1].ts).toBe("7000.002");
+    // latest 모드: hasMoreNewer는 false, hasMoreOlder도 2 < 10이므로 false
+    expect(body.hasMoreNewer).toBe(false);
+    expect(body.hasMoreOlder).toBe(false);
+    expect(body.oldestCursor).toMatch(/^7000\.001:/);
+    expect(body.newestCursor).toMatch(/^7000\.002:/);
+  });
+
+  it("GET /api/channels/:channelId/messages with `before` cursor returns older messages", async () => {
+    // Seed 5 messages, then page backward with limit=2
+    for (let i = 1; i <= 5; i++) {
+      await inject("POST", "/api/messages", {
+        channel_id: "C300",
+        ts: `7100.00${i}`,
+        user_id: "U001",
+        user_name: "alice",
+        content: `msg${i}`,
+      });
+    }
+
+    // latest 2 messages (msg4, msg5)
+    const firstRes = await inject("GET", "/api/channels/C300/messages?limit=2");
+    const first = JSON.parse(firstRes.payload);
+    expect(first.messages).toHaveLength(2);
+    expect(first.messages[0].ts).toBe("7100.004");
+    expect(first.messages[1].ts).toBe("7100.005");
+    expect(first.hasMoreOlder).toBe(true);
+    expect(first.hasMoreNewer).toBe(false);
+
+    // Page older using before=oldestCursor → should return msg2, msg3
+    const secondRes = await inject(
+      "GET",
+      `/api/channels/C300/messages?limit=2&before=${encodeURIComponent(first.oldestCursor!)}`,
+    );
+    const second = JSON.parse(secondRes.payload);
+    expect(second.messages).toHaveLength(2);
+    expect(second.messages[0].ts).toBe("7100.002");
+    expect(second.messages[1].ts).toBe("7100.003");
+    expect(second.hasMoreOlder).toBe(true); // msg1 still left
+    expect(second.hasMoreNewer).toBe(true); // before 모드이므로 항상 true
+
+    // One more page → msg1 only
+    const thirdRes = await inject(
+      "GET",
+      `/api/channels/C300/messages?limit=2&before=${encodeURIComponent(second.oldestCursor!)}`,
+    );
+    const third = JSON.parse(thirdRes.payload);
+    expect(third.messages).toHaveLength(1);
+    expect(third.messages[0].ts).toBe("7100.001");
+    expect(third.hasMoreOlder).toBe(false);
+  });
+
+  it("GET /api/channels/:channelId/messages with `after` cursor returns newer messages", async () => {
+    for (let i = 1; i <= 4; i++) {
+      await inject("POST", "/api/messages", {
+        channel_id: "C300",
+        ts: `7200.00${i}`,
+        user_id: "U001",
+        user_name: "alice",
+        content: `msg${i}`,
+      });
+    }
+
+    // Start at the oldest: after=msg1 → msg2, msg3 (limit=2)
+    const firstRes = await inject("GET", "/api/channels/C300/messages?limit=2");
+    const first = JSON.parse(firstRes.payload);
+    // latest page: msg3, msg4
+    expect(first.messages[0].ts).toBe("7200.003");
+
+    // afterCursor targeting from the earliest — hand-built "ts:id"
+    // We don't have msg1's id directly; fetch it via range query
+    const rangeRes = await inject(
+      "GET",
+      "/api/channels/C300/messages?from=7200.001&to=7200.001&limit=10",
+    );
+    const rangeBody = JSON.parse(rangeRes.payload);
+    const msg1Cursor = `${rangeBody.messages[0].ts}:${rangeBody.messages[0].id}`;
+
+    // after msg1 → msg2, msg3 (limit=2)
+    const afterRes = await inject(
+      "GET",
+      `/api/channels/C300/messages?limit=2&after=${encodeURIComponent(msg1Cursor)}`,
+    );
+    const afterBody = JSON.parse(afterRes.payload);
+    expect(afterBody.messages).toHaveLength(2);
+    expect(afterBody.messages[0].ts).toBe("7200.002");
+    expect(afterBody.messages[1].ts).toBe("7200.003");
+    expect(afterBody.hasMoreNewer).toBe(true); // msg4 still left
+    expect(afterBody.hasMoreOlder).toBe(true); // after 모드이므로 항상 true
+  });
+
+  it("GET /api/channels/:channelId/messages clamps limit to [1, 100]", async () => {
+    // Over-limit request — should still return any available, no crash
+    const overRes = await inject("GET", "/api/channels/C300/messages?limit=9999");
+    expect(overRes.statusCode).toBe(200);
+    const overBody = JSON.parse(overRes.payload);
+    expect(Array.isArray(overBody.messages)).toBe(true);
+    // Under-limit (0 or negative) treated as 1 minimum
+    const underRes = await inject("GET", "/api/channels/C300/messages?limit=0");
+    expect(underRes.statusCode).toBe(200);
+  });
+
+  it("GET /api/channels/:channelId/messages silently ignores malformed cursor", async () => {
+    await inject("POST", "/api/messages", {
+      channel_id: "C300",
+      ts: "7300.001",
+      user_id: "U001",
+      user_name: "alice",
+      content: "only",
+    });
+
+    // Malformed: no colon, empty parts → should fall back to `latest` mode
+    const res = await inject(
+      "GET",
+      "/api/channels/C300/messages?limit=10&before=notacursor",
+    );
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.messages.length).toBeGreaterThan(0);
+    // latest 모드 동작이므로 hasMoreNewer는 false
+    expect(body.hasMoreNewer).toBe(false);
   });
 
   it("GET /api/channels/:channelId/threads/:threadTs returns thread", async () => {

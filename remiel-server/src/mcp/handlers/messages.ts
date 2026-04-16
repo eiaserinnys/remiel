@@ -92,14 +92,17 @@ export function getMessageTools() {
     },
     {
       name: "get_messages",
-      description: "Get messages for a channel within a time range",
+      description:
+        "Get a page of messages for a channel. Returns { messages, oldestCursor, newestCursor, hasMoreOlder, hasMoreNewer }. Use `before`/`after` cursors for pagination, `from`/`to` for range queries.",
       inputSchema: {
         type: "object" as const,
         properties: {
           channel_id: { type: "string" },
-          from: { type: "string", description: "Start timestamp" },
-          to: { type: "string", description: "End timestamp" },
-          limit: { type: "number" },
+          from: { type: "string", description: "Start timestamp (ts, inclusive)" },
+          to: { type: "string", description: "End timestamp (ts, inclusive)" },
+          before: { type: "string", description: "'ts:id' cursor — fetch messages older than this" },
+          after: { type: "string", description: "'ts:id' cursor — fetch messages newer than this" },
+          limit: { type: "number", description: "1..100, default 50" },
         },
         required: ["channel_id"],
       },
@@ -162,6 +165,8 @@ export async function handleMessageTool(
       return messageService.getMessages(args.channel_id as string, {
         from: args.from as string | undefined,
         to: args.to as string | undefined,
+        before: args.before as string | undefined,
+        after: args.after as string | undefined,
         limit: args.limit as number | undefined,
       });
 

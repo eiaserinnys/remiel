@@ -85,9 +85,40 @@ export interface EnrichmentStatus {
 }
 
 export interface GetMessagesOptions {
+  /** 단방향 범위 조회 시작(포함). Slack `ts` 문자열 형식. */
   from?: string;
+  /** 단방향 범위 조회 끝(포함). Slack `ts` 문자열 형식. */
   to?: string;
+  /** 반환할 최대 메시지 수. 1~100 clamp, 기본 50. */
   limit?: number;
+  /**
+   * `ts:id` 형식의 커서. 이 메시지 **이전**(과거 방향)을 조회한다.
+   * 예: `"1234567890.123456:uuid-abc"`.
+   * 잘못된 포맷은 조용히 무시되고 `latest` 모드로 동작한다.
+   */
+  before?: string;
+  /**
+   * `ts:id` 형식의 커서. 이 메시지 **이후**(미래 방향)을 조회한다.
+   * 예: `"1234567890.123456:uuid-abc"`.
+   * 잘못된 포맷은 조용히 무시되고 `latest` 모드로 동작한다.
+   */
+  after?: string;
+}
+
+/**
+ * 커서 페이지네이션 결과.
+ *
+ * - `messages`: 시간 오름차순(ASC)으로 정렬된 실제 페이지.
+ * - `oldestCursor` / `newestCursor`: 페이지 경계의 `ts:id` 커서.
+ *   빈 페이지면 둘 다 `null`.
+ * - `hasMoreOlder` / `hasMoreNewer`: 해당 방향으로 더 가져올 데이터가 있는지.
+ */
+export interface MessagesPage {
+  messages: Message[];
+  oldestCursor: string | null;
+  newestCursor: string | null;
+  hasMoreOlder: boolean;
+  hasMoreNewer: boolean;
 }
 
 export interface EnrichmentQueueItem {

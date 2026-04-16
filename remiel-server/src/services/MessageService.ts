@@ -1,5 +1,5 @@
 import pg from "pg";
-import type { Message, StoreMessageInput, MessageUpdate, GetMessagesOptions } from "../types/index.js";
+import type { Message, StoreMessageInput, MessageUpdate, GetMessagesOptions, MessagesPage } from "../types/index.js";
 import * as messageQueries from "../db/queries/messages.js";
 import * as interpretationQueries from "../db/queries/interpretations.js";
 import type { EventBus } from "../shared/EventBus.js";
@@ -42,7 +42,7 @@ export class MessageService {
     return messageQueries.softDeleteMessage(this.pool, channelId, ts);
   }
 
-  async getMessages(channelId: string, opts: GetMessagesOptions): Promise<Message[]> {
+  async getMessages(channelId: string, opts: GetMessagesOptions): Promise<MessagesPage> {
     return messageQueries.getMessages(this.pool, channelId, opts);
   }
 
@@ -54,7 +54,7 @@ export class MessageService {
     channelId: string,
     opts: { limit?: number; from?: string; to?: string },
   ): Promise<string> {
-    const messages = await this.getMessages(channelId, opts);
+    const { messages } = await this.getMessages(channelId, opts);
     if (messages.length === 0) return "";
 
     const lines: string[] = [];

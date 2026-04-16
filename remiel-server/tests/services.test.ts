@@ -88,10 +88,14 @@ describe("MessageService", () => {
     expect(mockQuery.mock.calls[0][0]).toContain("is_deleted = true");
   });
 
-  it("getMessages queries with channel filter", async () => {
+  it("getMessages queries with channel filter and returns a page", async () => {
     mockQuery.mockResolvedValue({ rows: [sampleMessage] });
     const result = await service.getMessages("C123", { limit: 50 });
-    expect(result).toHaveLength(1);
+    expect(result.messages).toHaveLength(1);
+    expect(result.oldestCursor).toBe(`${sampleMessage.ts}:${sampleMessage.id}`);
+    expect(result.newestCursor).toBe(`${sampleMessage.ts}:${sampleMessage.id}`);
+    expect(result.hasMoreOlder).toBe(false); // 1 row < limit+1, so no more older
+    expect(result.hasMoreNewer).toBe(false); // latest mode
     expect(mockQuery.mock.calls[0][0]).toContain("channel_id = $1");
   });
 

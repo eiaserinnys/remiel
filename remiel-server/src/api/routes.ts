@@ -82,13 +82,17 @@ export function registerRoutes(app: FastifyInstance, services: Services): void {
 
   app.get<{
     Params: { channelId: string };
-    Querystring: { from?: string; to?: string; limit?: string };
+    Querystring: { from?: string; to?: string; before?: string; after?: string; limit?: string };
   }>("/api/channels/:channelId/messages", async (req) => {
     const { channelId } = req.params;
-    const { from, to, limit } = req.query;
+    const { from, to, before, after, limit } = req.query;
+    // 커서 페이지네이션 응답. 응답 스키마:
+    //   { messages: Message[], oldestCursor, newestCursor, hasMoreOlder, hasMoreNewer }
     return messageService.getMessages(channelId, {
       from,
       to,
+      before,
+      after,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
   });
