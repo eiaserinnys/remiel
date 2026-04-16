@@ -1,4 +1,4 @@
-import { App } from "@slack/bolt";
+import { App, SocketModeReceiver } from "@slack/bolt";
 import type { Config } from "./config.js";
 import { MessageQueue, type QueuedMessage } from "./queue.js";
 import { askClaude, isNewSession, formatPrompt, tsToDateTime } from "./claude.js";
@@ -113,10 +113,15 @@ export async function createSlackApp(
   deepThinkManager: DeepThinkManager | null = null,
   forwarder: MessageForwarder | null = null,
 ): Promise<App> {
+  // Create SocketModeReceiver explicitly so we can access the underlying
+  // SocketModeClient for WebSocket-level health monitoring.
+  const socketReceiver = new SocketModeReceiver({
+    appToken: config.slackAppToken,
+  });
+
   const app = new App({
     token: config.slackBotToken,
-    appToken: config.slackAppToken,
-    socketMode: true,
+    receiver: socketReceiver,
   });
 
   // Identify our own bot_id and user_id to avoid self-triggering and enable mention detection
@@ -344,27 +349,46 @@ export async function createSlackApp(
   const responseChannelSet = new Set(config.slackChannelIds);
 
   // --- WebSocket health monitor ---
-  // Track last event timestamp; if no events for maxSilenceMs, force exit
-  // so Haniel (restart_delay: 5) can restart the process.
-  // Threshold is set high (default 30 min) to avoid false positives during quiet hours,
-  // since Bolt middleware only fires on application events, not WebSocket keep-alive frames.
-  let lastEventAt = Date.now();
-  const HEALTH_CHECK_INTERVAL_MS = 60_000; // check every 1 minute
-  const maxSilenceMs = Number(process.env.WS_MAX_SILENCE_MS) || 1_800_000; // default 30 minutes
+  // Monitor actual WebSocket connection state instead of application event frequency.
+  // The old approach tracked Bolt middleware events and force-restarted after 30 min of
+  // silence — but Bolt middleware only fires on app events (messages, reactions), not
+  // WebSocket keep-alive frames. This caused unnecessary restart loops on quiet channels.
+  //
+  // Now we listen to SocketModeClient's 'connected'/'disconnected' events directly.
+  // Force exit only when the WebSocket has been truly disconnected (pong failures →
+  // reconnection failures) for longer than the threshold.
+  const maxDisconnectMs = Number(process.env.WS_MAX_DISCONNECT_MS) || 300_000; // default 5 min
+  let disconnectedSince: number | null = null;
 
-  app.use(async ({ next }) => {
-    lastEventAt = Date.now();
-    await next();
+  const smClient = socketReceiver.client;
+
+  smClient.on("connected", () => {
+    if (disconnectedSince) {
+      const downtime = Math.round((Date.now() - disconnectedSince) / 1000);
+      console.log(`[Bot] WebSocket reconnected after ${downtime}s`);
+    }
+    disconnectedSince = null;
+  });
+
+  smClient.on("disconnected", () => {
+    if (!disconnectedSince) {
+      disconnectedSince = Date.now();
+      console.warn("[Bot] WebSocket disconnected — waiting for auto-reconnect");
+    }
   });
 
   const healthTimer = setInterval(() => {
-    const silenceMs = Date.now() - lastEventAt;
-    if (silenceMs > maxSilenceMs) {
-      console.error(`[Bot] No events for ${Math.round(silenceMs / 1000)}s — forcing exit for Haniel restart`);
-      process.exit(1);
+    if (disconnectedSince) {
+      const elapsed = Date.now() - disconnectedSince;
+      if (elapsed > maxDisconnectMs) {
+        console.error(
+          `[Bot] WebSocket disconnected for ${Math.round(elapsed / 1000)}s — forcing exit for Haniel restart`,
+        );
+        process.exit(1);
+      }
     }
-  }, HEALTH_CHECK_INTERVAL_MS);
-  healthTimer.unref(); // don't prevent graceful shutdown
+  }, 60_000);
+  healthTimer.unref();
 
   // Listen to all message events from all channels the bot is in
   app.event("message", async ({ event }) => {
