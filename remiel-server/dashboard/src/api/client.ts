@@ -31,6 +31,21 @@ export interface Message {
   updated_at: string;
 }
 
+/**
+ * Cursor-paginated message page from the backend.
+ *
+ * `messages`는 항상 시간 오름차순(ASC)으로 정렬되어 있다.
+ * `oldestCursor`/`newestCursor`는 `"ts:id"` 포맷의 커서이며 빈 페이지일 때 `null`.
+ * `hasMoreOlder`/`hasMoreNewer`는 해당 방향으로 추가 데이터가 있는지 나타낸다.
+ */
+export interface MessagesPage {
+  messages: Message[];
+  oldestCursor: string | null;
+  newestCursor: string | null;
+  hasMoreOlder: boolean;
+  hasMoreNewer: boolean;
+}
+
 export interface Interpretation {
   id: string;
   channel_id: string;
@@ -87,13 +102,18 @@ async function fetchJSON<T>(url: string): Promise<T> {
 export const api = {
   getChannels: () => fetchJSON<Channel[]>('/api/channels'),
 
-  getMessages: (channelId: string, opts?: { from?: string; to?: string; limit?: number }) => {
+  getMessages: (
+    channelId: string,
+    opts?: { from?: string; to?: string; before?: string; after?: string; limit?: number },
+  ) => {
     const params = new URLSearchParams();
     if (opts?.from) params.set('from', opts.from);
     if (opts?.to) params.set('to', opts.to);
+    if (opts?.before) params.set('before', opts.before);
+    if (opts?.after) params.set('after', opts.after);
     if (opts?.limit) params.set('limit', String(opts.limit));
     const qs = params.toString();
-    return fetchJSON<Message[]>(`/api/channels/${channelId}/messages${qs ? '?' + qs : ''}`);
+    return fetchJSON<MessagesPage>(`/api/channels/${channelId}/messages${qs ? '?' + qs : ''}`);
   },
 
   getThread: (channelId: string, threadTs: string) =>

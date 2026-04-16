@@ -1,10 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Bot, User, MessageSquare, Brain, Paperclip, Link, FileText, Image, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
-import type { Message, Interpretation, EnrichmentItem, CrawlResult, AttachmentResult, Attachment } from '../api/client';
+import type { Message, MessagesPage, Interpretation, EnrichmentItem, CrawlResult, AttachmentResult, Attachment } from '../api/client';
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
 
@@ -29,14 +30,24 @@ interface MessageDetailProps {
 }
 
 export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
-  // Find the selected message from the messages query cache
-  const { data: messages = [] } = useQuery({
+  // MessageTimeline가 채운 infinite 캐시(['messages', channelId])를 공유 구독한다.
+  // enabled:false로 독자 페치는 막고, 캐시에 있으면 그대로 읽는다.
+  const { data } = useInfiniteQuery<MessagesPage, Error>({
     queryKey: ['messages', channelId],
-    queryFn: () => api.getMessages(channelId!, { limit: 200 }),
-    enabled: !!channelId,
+    queryFn: () => Promise.reject(new Error('MessageDetail does not fetch on its own')),
+    enabled: false,
+    initialPageParam: undefined,
+    getNextPageParam: () => undefined,
   });
 
-  const message = messages.find((m: Message) => m.id === messageId);
+  const message = useMemo<Message | undefined>(() => {
+    if (!messageId || !data) return undefined;
+    for (const page of data.pages) {
+      const hit = page.messages.find((m) => m.id === messageId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }, [data, messageId]);
 
   // Fetch thread if message has thread_ts
   const threadTs = message?.thread_ts ?? message?.ts;

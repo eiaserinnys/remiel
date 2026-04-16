@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Login } from './Login';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { InfiniteData } from '@tanstack/react-query';
 import { ThreePanelLayout } from './components/Layout/ThreePanelLayout';
 import { MobileLayout } from './components/Layout/MobileLayout';
 import { ChannelList } from './components/ChannelList';
@@ -11,6 +12,55 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { useMobile } from './hooks/useMobile';
 import { useSSE } from './hooks/useSSE';
 import type { SSEEvent } from './hooks/useSSE';
+import type { Message, MessagesPage } from './api/client';
+
+type MessagesInfiniteData = InfiniteData<MessagesPage>;
+
+/**
+ * `pages[0]`(최신 페이지)의 끝에 새 메시지를 append.
+ * 이미 동일 id가 존재하면 append하지 않고 기존 항목을 교체한다(dup 방지).
+ * 새 메시지의 커서(`ts:id`)로 `newestCursor`를 갱신한다.
+ */
+function appendMessage(
+  data: MessagesInfiniteData | undefined,
+  msg: Message,
+): MessagesInfiniteData | undefined {
+  if (!data || data.pages.length === 0) return data;
+  const pages = data.pages.slice();
+  const latest = pages[0];
+  const existingIdx = latest.messages.findIndex((m) => m.id === msg.id);
+  const newestCursor = `${msg.ts}:${msg.id}`;
+  if (existingIdx >= 0) {
+    const newMessages = latest.messages.slice();
+    newMessages[existingIdx] = msg;
+    pages[0] = { ...latest, messages: newMessages };
+  } else {
+    pages[0] = {
+      ...latest,
+      messages: [...latest.messages, msg],
+      newestCursor,
+    };
+  }
+  return { ...data, pages };
+}
+
+/** 모든 페이지에서 id가 일치하는 메시지를 찾아 제자리 교체. */
+function replaceMessage(
+  data: MessagesInfiniteData | undefined,
+  msg: Message,
+): MessagesInfiniteData | undefined {
+  if (!data) return data;
+  let changed = false;
+  const pages = data.pages.map((page) => {
+    const idx = page.messages.findIndex((m) => m.id === msg.id);
+    if (idx < 0) return page;
+    changed = true;
+    const newMessages = page.messages.slice();
+    newMessages[idx] = msg;
+    return { ...page, messages: newMessages };
+  });
+  return changed ? { ...data, pages } : data;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,14 +85,31 @@ function AppInner() {
     setSelectedMessageId(id);
   }, []);
 
-  // SSE: invalidate relevant queries on server events
+  // SSE: 서버 이벤트를 받아 캐시를 직접 갱신한다.
+  // - message:created → pages[0] append (+ 채널 목록은 count 때문에 invalidate)
+  // - message:updated → 모든 페이지에서 찾아 replace
+  // 스크롤 위치/가상화 상태를 깨지 않기 위해 invalidateQueries는 메시지 갱신에 사용하지 않는다.
   useSSE(useCallback((event: SSEEvent) => {
     switch (event.type) {
-      case 'message:created':
-      case 'message:updated':
-        queryClient.invalidateQueries({ queryKey: ['messages'] });
+      case 'message:created': {
+        const msg = event.data as Message;
+        if (!msg?.channel_id) return;
+        queryClient.setQueryData<MessagesInfiniteData>(
+          ['messages', msg.channel_id],
+          (prev) => appendMessage(prev, msg),
+        );
         queryClient.invalidateQueries({ queryKey: ['channels'] });
         break;
+      }
+      case 'message:updated': {
+        const msg = event.data as Message;
+        if (!msg?.channel_id) return;
+        queryClient.setQueryData<MessagesInfiniteData>(
+          ['messages', msg.channel_id],
+          (prev) => replaceMessage(prev, msg),
+        );
+        break;
+      }
       case 'enrichment:completed':
       case 'enrichment:failed':
         queryClient.invalidateQueries({ queryKey: ['enrichment-status'] });
