@@ -13,6 +13,9 @@ interface MobileLayoutProps {
   selectedMessageId: string | null;
   onSelectChannel: (id: string | null) => void;
   onSelectMessage: (id: string | null) => void;
+  threadTs?: string | null;
+  onEnterThread?: (ts: string) => void;
+  onExitThread?: () => void;
 }
 
 const tabs: { id: Tab; icon: typeof Hash; label: string }[] = [
@@ -27,6 +30,9 @@ export function MobileLayout({
   selectedMessageId,
   onSelectChannel,
   onSelectMessage,
+  threadTs,
+  onEnterThread,
+  onExitThread,
 }: MobileLayoutProps) {
   const [activeTab, setActiveTab] = useState<Tab>('channels');
 
@@ -44,6 +50,9 @@ export function MobileLayout({
             channelId={selectedChannelId}
             selectedMessageId={selectedMessageId}
             onSelectMessage={onSelectMessage}
+            threadTs={threadTs}
+            onEnterThread={onEnterThread}
+            onExitThread={onExitThread}
           />
         )}
         {activeTab === 'detail' && (

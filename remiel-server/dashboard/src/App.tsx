@@ -92,15 +92,26 @@ const queryClient = new QueryClient({
 function AppInner() {
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [threadTs, setThreadTs] = useState<string | null>(null);
   const isMobile = useMobile();
 
   const handleSelectChannel = useCallback((id: string | null) => {
     setSelectedChannelId(id);
     setSelectedMessageId(null);
+    setThreadTs(null);
   }, []);
 
   const handleSelectMessage = useCallback((id: string | null) => {
     setSelectedMessageId(id);
+  }, []);
+
+  const handleEnterThread = useCallback((ts: string) => {
+    setThreadTs(ts);
+    setSelectedMessageId(null);
+  }, []);
+
+  const handleExitThread = useCallback(() => {
+    setThreadTs(null);
   }, []);
 
   // SSE: 서버 이벤트를 받아 캐시를 직접 갱신한다.
@@ -178,6 +189,9 @@ function AppInner() {
             selectedMessageId={selectedMessageId}
             onSelectChannel={handleSelectChannel}
             onSelectMessage={handleSelectMessage}
+            threadTs={threadTs}
+            onEnterThread={handleEnterThread}
+            onExitThread={handleExitThread}
           />
         ) : (
           <ThreePanelLayout
@@ -192,6 +206,9 @@ function AppInner() {
                 channelId={selectedChannelId}
                 selectedMessageId={selectedMessageId}
                 onSelectMessage={handleSelectMessage}
+                threadTs={threadTs}
+                onEnterThread={handleEnterThread}
+                onExitThread={handleExitThread}
               />
             }
             right={

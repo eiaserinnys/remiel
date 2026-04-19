@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Bot, User, MessageSquare, Brain, Paperclip, Link, FileText, Image, Loader2, AlertCircle } from 'lucide-react';
+import { Bot, User, Brain, Paperclip, Link, FileText, Image, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
 import type { Message, MessagesPage, Interpretation, EnrichmentItem, CrawlResult, AttachmentResult, Attachment } from '../api/client';
 
@@ -48,14 +48,6 @@ export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
     }
     return undefined;
   }, [data, messageId]);
-
-  // Fetch thread if message has thread_ts
-  const threadTs = message?.thread_ts ?? message?.ts;
-  const { data: thread = [] } = useQuery({
-    queryKey: ['thread', channelId, threadTs],
-    queryFn: () => api.getThread(channelId!, threadTs!),
-    enabled: !!channelId && !!threadTs && !!message,
-  });
 
   // Fetch interpretations
   const { data: interpretations = [] } = useQuery({
@@ -154,29 +146,6 @@ export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
             </div>
           )}
         </div>
-
-        {/* Thread replies */}
-        {thread.length > 1 && (
-          <div className="border-b border-border">
-            <div className="px-4 py-2 flex items-center gap-1.5">
-              <MessageSquare size={14} className="text-muted-foreground" />
-              <span className="text-xs font-semibold uppercase tracking-[0.5px] text-muted-foreground">
-                Thread ({thread.length - 1} replies)
-              </span>
-            </div>
-            {thread.slice(1).map((reply: Message) => (
-              <div key={reply.id} className="px-4 py-2.5 border-t border-border/30">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-medium">{reply.user_name}</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {new Date(reply.created_at || reply.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-                <div className="text-sm text-muted-foreground">{reply.content}</div>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Enrichments */}
         {enrichments.length > 0 && (
