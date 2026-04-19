@@ -234,7 +234,8 @@ export async function getMessages(
 
   const { rows } = await pool.query<Message>(
     `SELECT m.*,
-       (SELECT COUNT(*)::int FROM enrichment_queue eq WHERE eq.message_id = m.id) AS enrichment_count
+       (SELECT COUNT(*)::int FROM enrichment_queue eq WHERE eq.message_id = m.id) AS enrichment_count,
+       (SELECT COUNT(*)::int FROM messages m2 WHERE m2.channel_id = m.channel_id AND m2.thread_ts = m.ts AND m2.ts != m.ts AND m2.is_deleted = false) AS reply_count
      FROM messages m
      WHERE ${conditions.join(" AND ")} ${orderBy} LIMIT $${paramIdx}`,
     params,
@@ -273,7 +274,8 @@ export async function getMessages(
 export async function getThread(pool: pg.Pool, channelId: string, threadTs: string): Promise<Message[]> {
   const { rows } = await pool.query<Message>(
     `SELECT m.*,
-       (SELECT COUNT(*)::int FROM enrichment_queue eq WHERE eq.message_id = m.id) AS enrichment_count
+       (SELECT COUNT(*)::int FROM enrichment_queue eq WHERE eq.message_id = m.id) AS enrichment_count,
+       (SELECT COUNT(*)::int FROM messages m2 WHERE m2.channel_id = m.channel_id AND m2.thread_ts = m.ts AND m2.ts != m.ts AND m2.is_deleted = false) AS reply_count
      FROM messages m
      WHERE channel_id = $1 AND (ts = $2 OR thread_ts = $2) AND is_deleted = false
      ORDER BY ts ASC`,
