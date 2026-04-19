@@ -84,6 +84,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60,
+      gcTime: 1000 * 60 * 30, // 30분간 가비지 컬렉션 방지
       retry: 1,
     },
   },

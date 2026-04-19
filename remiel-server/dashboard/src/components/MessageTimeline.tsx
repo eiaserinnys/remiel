@@ -8,6 +8,7 @@ import { Bot, User, Paperclip, ArrowDown, ArrowLeft, RefreshCw, MessageSquare } 
 import clsx from 'clsx';
 import { api } from '../api/client';
 import type { Message, MessagesPage } from '../api/client';
+import { estimateMessageHeight, estimateDateHeight } from '../lib/estimate-height';
 
 interface MessageTimelineProps {
   channelId: string | null;
@@ -19,8 +20,7 @@ interface MessageTimelineProps {
 }
 
 const PAGE_SIZE = 50;
-const ESTIMATED_ROW_HEIGHT = 72;
-const OVERSCAN = 8;
+const OVERSCAN = 20;
 /** 맨 위에서 N px 이내로 접근하면 다음(과거) 페이지 프리패치. */
 const NEAR_TOP_THRESHOLD = 200;
 /** scrollTop+clientHeight가 scrollHeight에서 N px 이내면 "맨 아래"로 간주. */
@@ -188,10 +188,33 @@ function ChannelView({
   const rows = useMemo(() => buildRows(messages), [messages]);
 
   const parentRef = useRef<HTMLDivElement | null>(null);
+
+  // 컨테이너 너비를 ResizeObserver로 반응형 추적 (pretext 높이 예측용)
+  const [containerWidth, setContainerWidth] = useState(400);
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setContainerWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    estimateSize: (index) => {
+      const row = rows[index];
+      if (!row) return 72;
+      if (row.kind === 'date') return estimateDateHeight();
+      return estimateMessageHeight(
+        row.msg.content,
+        row.msg.reactions?.length ?? 0,
+        containerWidth,
+      );
+    },
     overscan: OVERSCAN,
     measureElement: (el) => el.getBoundingClientRect().height,
     getItemKey: (index) => rows[index]?.key ?? index,
@@ -284,7 +307,9 @@ function ChannelView({
   function scrollToBottom() {
     const el = parentRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
     setPendingNewCount(0);
     setIsAtBottom(true);
   }
@@ -339,7 +364,7 @@ function ChannelView({
             )}
             <div
               style={{
-                height: totalSize,
+                height: totalSize + 16,
                 width: '100%',
                 position: 'relative',
               }}
