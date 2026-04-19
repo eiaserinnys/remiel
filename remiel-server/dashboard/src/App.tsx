@@ -44,6 +44,24 @@ function appendMessage(
   return { ...data, pages };
 }
 
+/** 부모 메시지의 reply_count를 낙관적으로 증분. thread_ts로 부모를 검색한다. */
+function incrementReplyCount(
+  data: MessagesInfiniteData | undefined,
+  threadTs: string,
+): MessagesInfiniteData | undefined {
+  if (!data) return data;
+  let changed = false;
+  const pages = data.pages.map((page) => {
+    const idx = page.messages.findIndex((m) => m.ts === threadTs);
+    if (idx < 0) return page;
+    changed = true;
+    const newMessages = page.messages.slice();
+    newMessages[idx] = { ...newMessages[idx], reply_count: (newMessages[idx].reply_count || 0) + 1 };
+    return { ...page, messages: newMessages };
+  });
+  return changed ? { ...data, pages } : data;
+}
+
 /** 모든 페이지에서 id가 일치하는 메시지를 찾아 제자리 교체. */
 function replaceMessage(
   data: MessagesInfiniteData | undefined,
@@ -66,6 +84,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60,
+      gcTime: 1000 * 60 * 30, // 30분간 가비지 컬렉션 방지
       retry: 1,
     },
   },
@@ -74,15 +93,26 @@ const queryClient = new QueryClient({
 function AppInner() {
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [threadTs, setThreadTs] = useState<string | null>(null);
   const isMobile = useMobile();
 
   const handleSelectChannel = useCallback((id: string | null) => {
     setSelectedChannelId(id);
     setSelectedMessageId(null);
+    setThreadTs(null);
   }, []);
 
   const handleSelectMessage = useCallback((id: string | null) => {
     setSelectedMessageId(id);
+  }, []);
+
+  const handleEnterThread = useCallback((ts: string) => {
+    setThreadTs(ts);
+    setSelectedMessageId(null);
+  }, []);
+
+  const handleExitThread = useCallback(() => {
+    setThreadTs(null);
   }, []);
 
   // SSE: 서버 이벤트를 받아 캐시를 직접 갱신한다.
@@ -94,10 +124,23 @@ function AppInner() {
       case 'message:created': {
         const msg = event.data as Message;
         if (!msg?.channel_id) return;
-        queryClient.setQueryData<MessagesInfiniteData>(
-          ['messages', msg.channel_id],
-          (prev) => appendMessage(prev, msg),
-        );
+
+        if (msg.thread_ts && msg.thread_ts !== msg.ts) {
+          // 스레드 답글: 타임라인에 추가하지 않고 부모의 reply_count 증가
+          queryClient.setQueryData<MessagesInfiniteData>(
+            ['messages', msg.channel_id],
+            (prev) => incrementReplyCount(prev, msg.thread_ts!),
+          );
+          // 스레드 캐시 무효화 (스레드 뷰가 열려있으면 자동 갱신)
+          queryClient.invalidateQueries({ queryKey: ['thread', msg.channel_id, msg.thread_ts] });
+        } else {
+          // 채널 메시지: 기존 로직대로 타임라인에 append
+          queryClient.setQueryData<MessagesInfiniteData>(
+            ['messages', msg.channel_id],
+            (prev) => appendMessage(prev, msg),
+          );
+        }
+        // 의도적: 스레드 답글도 채널의 최신 활동 시간을 갱신하므로 channels 재조회
         queryClient.invalidateQueries({ queryKey: ['channels'] });
         break;
       }
@@ -147,6 +190,9 @@ function AppInner() {
             selectedMessageId={selectedMessageId}
             onSelectChannel={handleSelectChannel}
             onSelectMessage={handleSelectMessage}
+            threadTs={threadTs}
+            onEnterThread={handleEnterThread}
+            onExitThread={handleExitThread}
           />
         ) : (
           <ThreePanelLayout
@@ -161,6 +207,9 @@ function AppInner() {
                 channelId={selectedChannelId}
                 selectedMessageId={selectedMessageId}
                 onSelectMessage={handleSelectMessage}
+                threadTs={threadTs}
+                onEnterThread={handleEnterThread}
+                onExitThread={handleExitThread}
               />
             }
             right={

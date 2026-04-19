@@ -27,6 +27,7 @@ export interface Message {
   reactions: { emoji: string; users: string[] }[];
   is_bot: boolean;
   enrichment_count: number;
+  reply_count: number;
   created_at: string;
   updated_at: string;
 }
