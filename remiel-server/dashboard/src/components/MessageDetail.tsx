@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -30,6 +30,8 @@ interface MessageDetailProps {
 }
 
 export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
+  const queryClient = useQueryClient();
+
   // MessageTimeline가 채운 infinite 캐시(['messages', channelId])를 공유 구독한다.
   // enabled:false로 독자 페치는 막고, 캐시에 있으면 그대로 읽는다.
   const { data } = useInfiniteQuery<MessagesPage, Error>({
@@ -41,13 +43,29 @@ export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
   });
 
   const message = useMemo<Message | undefined>(() => {
-    if (!messageId || !data) return undefined;
-    for (const page of data.pages) {
-      const hit = page.messages.find((m) => m.id === messageId);
-      if (hit) return hit;
+    if (!messageId) return undefined;
+    // 1. 채널 메시지 캐시에서 검색
+    if (data) {
+      for (const page of data.pages) {
+        const hit = page.messages.find((m) => m.id === messageId);
+        if (hit) return hit;
+      }
+    }
+    // 2. 스레드 캐시에서 검색 (답글 메시지용)
+    // ThreadView가 로드한 ['thread', channelId, threadTs] 캐시를 prefix 매칭으로 탐색한다.
+    // Note: getQueriesData는 reactive하지 않지만, 사용자가 답글을 클릭할 시점에는
+    // ThreadView가 이미 thread 캐시를 채워둔 상태이므로 messageId 변경으로 트리거되는
+    // useMemo 재평가에서 메시지를 찾을 수 있다.
+    if (channelId) {
+      const threadEntries = queryClient.getQueriesData<Message[]>({ queryKey: ['thread', channelId] });
+      for (const [, messages] of threadEntries) {
+        if (!messages) continue;
+        const hit = messages.find((m) => m.id === messageId);
+        if (hit) return hit;
+      }
     }
     return undefined;
-  }, [data, messageId]);
+  }, [data, messageId, channelId, queryClient]);
 
   // Fetch interpretations
   const { data: interpretations = [] } = useQuery({
