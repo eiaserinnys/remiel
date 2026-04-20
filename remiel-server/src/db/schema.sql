@@ -73,3 +73,17 @@ CREATE TABLE IF NOT EXISTS interpretations (
 
 CREATE INDEX IF NOT EXISTS idx_interpretations_message ON interpretations (message_id) WHERE message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_interpretations_thread ON interpretations (channel_id, thread_ts) WHERE thread_ts IS NOT NULL;
+
+-- Interpretation prompts: editable from dashboard, cached by worker
+CREATE TABLE IF NOT EXISTS interpretation_prompts (
+  key         TEXT PRIMARY KEY,
+  content     TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Channel-level interpretation toggle
+DO $$ BEGIN
+  ALTER TABLE channels ADD COLUMN IF NOT EXISTS interpretation_enabled BOOLEAN NOT NULL DEFAULT false;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;

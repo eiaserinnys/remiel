@@ -7,8 +7,10 @@ import { InterpretationService } from "./services/InterpretationService.js";
 import { EnrichmentService } from "./services/EnrichmentService.js";
 import { EventBus } from "./shared/EventBus.js";
 import { EnrichmentWorker } from "./worker/EnrichmentWorker.js";
+import { InterpretationWorker } from "./worker/InterpretationWorker.js";
 import { registerRoutes } from "./api/routes.js";
 import { migrate } from "./db/migrate.js";
+import { seedDefaultPrompt } from "./db/queries/prompts.js";
 
 async function main() {
   const pool = getPool();
@@ -25,12 +27,34 @@ async function main() {
   registerRoutes(server, { messageService, channelService, interpretationService, enrichmentService, eventBus, slackBotToken });
 
   // Start enrichment worker in background
-  const worker = new EnrichmentWorker(pool, eventBus, {
+  const enrichmentWorker = new EnrichmentWorker(pool, eventBus, {
     slackBotToken: process.env.SLACK_BOT_TOKEN,
   });
-  worker.start().catch((err) => {
+  enrichmentWorker.start().catch((err) => {
     console.error("[EnrichmentWorker] Fatal error:", err);
   });
+
+  // Start interpretation worker (conditional)
+  let interpretationWorker: InterpretationWorker | undefined;
+  const interpretationEnabled = process.env.INTERPRETATION_ENABLED === "true";
+  if (interpretationEnabled) {
+    const soulstreamBaseUrl = process.env.SOULSTREAM_BASE_URL;
+    const soulstreamAuthToken = process.env.SOULSTREAM_AUTH_TOKEN;
+    if (!soulstreamBaseUrl || !soulstreamAuthToken) {
+      console.error("[InterpretationWorker] SOULSTREAM_BASE_URL and SOULSTREAM_AUTH_TOKEN are required");
+    } else {
+      await seedDefaultPrompt(pool);
+      interpretationWorker = new InterpretationWorker(pool, interpretationService, eventBus, {
+        soulstreamBaseUrl,
+        soulstreamAuthToken,
+        soulstreamProfile: process.env.SOULSTREAM_PROFILE,
+        soulstreamFolderId: process.env.SOULSTREAM_FOLDER_ID,
+      });
+      interpretationWorker.start().catch((err) => {
+        console.error("[InterpretationWorker] Fatal error:", err);
+      });
+    }
+  }
 
   const port = parseInt(process.env.PORT ?? "3120");
   await server.listen({ host: "0.0.0.0", port });
@@ -38,7 +62,8 @@ async function main() {
 
   // Graceful shutdown
   const shutdown = async () => {
-    worker.stop();
+    enrichmentWorker.stop();
+    interpretationWorker?.stop();
     await server.close();
     await pool.end();
   };

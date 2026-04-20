@@ -2,6 +2,7 @@ export interface Channel {
   id: string;
   name: string;
   source: string;
+  interpretation_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -28,6 +29,7 @@ export interface Message {
   source_edited: boolean;
   enrichment_count: number;
   reply_count: number;
+  latest_interpretation: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -149,4 +151,21 @@ export interface AttachmentResult {
   content_type: string | null;
   content_length: number | null;
   verified_at: string;
+}
+
+export interface InterpretationPrompt {
+  key: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 구조화된 맥락 해석 결과 (메시지 1개에 대한 해석) */
+export interface ContextInterpretation {
+  message_id: string;
+  addressees: string[];
+  intent: string;
+  summary: string;
+  confidence: number;
+  adversarial_note: string | null;
 }
