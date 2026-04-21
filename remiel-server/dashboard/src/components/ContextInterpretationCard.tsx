@@ -1,8 +1,13 @@
 import type { Interpretation } from '../api/client';
 
+interface Addressee {
+  id: string;
+  name: string;
+}
+
 interface ContextInterpretation {
   message_id: string;
-  addressees: string[];
+  addressees: Addressee[];
   intent: string;
   summary: string;
   confidence: number;
@@ -16,7 +21,16 @@ function tryParseContext(interp: Interpretation): ContextInterpretation | null {
     if (!meta || typeof meta !== 'object') return null;
     return {
       message_id: (meta.message_id as string) ?? interp.message_id ?? '',
-      addressees: Array.isArray(meta.addressees) ? meta.addressees as string[] : [],
+      addressees: Array.isArray(meta.addressees)
+        ? (meta.addressees as unknown[]).map((a): Addressee => {
+            if (a && typeof a === 'object' && 'id' in a) {
+              const obj = a as Record<string, unknown>;
+              return { id: String(obj.id), name: String(obj.name ?? obj.id) };
+            }
+            // 하위 호환: 문자열(user_id만 저장된 이전 데이터)
+            return { id: String(a), name: String(a) };
+          })
+        : [],
       intent: (meta.intent as string) ?? '',
       summary: (meta.summary as string) ?? interp.content,
       confidence: typeof meta.confidence === 'number' ? meta.confidence : 0,
@@ -92,8 +106,8 @@ export function ContextInterpretationCard({ interpretation }: Props) {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[11px] text-muted-foreground">To:</span>
           {ctx.addressees.map((a, i) => (
-            <span key={i} className="text-[11px] bg-muted px-1.5 py-0.5 rounded-[5px]">
-              {a}
+            <span key={i} className="text-[11px] bg-muted px-1.5 py-0.5 rounded-[5px]" title={a.id}>
+              {a.name}
             </span>
           ))}
         </div>

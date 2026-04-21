@@ -160,10 +160,16 @@ export interface InterpretationPrompt {
   updated_at: string;
 }
 
+/** 수신자 정보 (user_id + 표시명) */
+export interface Addressee {
+  id: string;
+  name: string;
+}
+
 /** 구조화된 맥락 해석 결과 (메시지 1개에 대한 해석) */
 export interface ContextInterpretation {
   message_id: string;
-  addressees: string[];
+  addressees: Addressee[];
   intent: string;
   summary: string;
   confidence: number;

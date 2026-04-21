@@ -2,7 +2,7 @@
  * LLM 응답 파싱 + 변경 감지.
  */
 
-import type { ContextInterpretation } from "../types/index.js";
+import type { ContextInterpretation, Addressee } from "../types/index.js";
 import type { MessageWithInterpretation } from "./buildPrompt.js";
 
 export interface ParseResult {
@@ -66,8 +66,18 @@ function validateInterpretation(item: unknown): ContextInterpretation | null {
   const message_id = typeof obj.message_id === "string" ? obj.message_id : null;
   if (!message_id) return null;
 
-  const addressees = Array.isArray(obj.addressees)
-    ? obj.addressees.filter((a): a is string => typeof a === "string")
+  const addressees: Addressee[] = Array.isArray(obj.addressees)
+    ? obj.addressees
+        .map((a): Addressee | null => {
+          // 새 포맷: {id, name} 객체
+          if (a && typeof a === "object" && "id" in a) {
+            return { id: String(a.id), name: String(a.name ?? a.id) };
+          }
+          // 하위 호환: 문자열(user_id만)
+          if (typeof a === "string") return { id: a, name: a };
+          return null;
+        })
+        .filter((a): a is Addressee => a !== null)
     : [];
 
   const intent = typeof obj.intent === "string" ? obj.intent : "불명";
@@ -99,12 +109,13 @@ export function detectChanges(
     if (!existing?.existing_interpretation) return true; // 기존 해석 없으면 항상 저장
 
     const old = existing.existing_interpretation;
+    const oldIds = old.addressees.map((a) => typeof a === "string" ? a : a.id).sort();
+    const newIds = newInterp.addressees.map((a) => a.id).sort();
     return (
       old.intent !== newInterp.intent ||
       old.summary !== newInterp.summary ||
       old.confidence !== newInterp.confidence ||
-      JSON.stringify(old.addressees.sort()) !==
-        JSON.stringify(newInterp.addressees.sort())
+      JSON.stringify(oldIds) !== JSON.stringify(newIds)
     );
   });
 }

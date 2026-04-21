@@ -3,7 +3,7 @@
  * [이전 5개 + 기존 해석] + [대상 15개 + 기존 해석] = 최대 20개 메시지 윈도우.
  */
 
-import type { Message, Interpretation } from "../types/index.js";
+import type { Message, Interpretation, Addressee } from "../types/index.js";
 
 export interface PromptMessage {
   id: string;
@@ -19,7 +19,7 @@ export interface MessageWithInterpretation {
   existing_interpretation?: {
     summary: string;
     intent: string;
-    addressees: string[];
+    addressees: Addressee[];
     confidence: number;
   } | null;
 }
@@ -48,7 +48,8 @@ function formatMessages(items: MessageWithInterpretation[], section: string): st
     lines.push(message.content);
 
     if (existing_interpretation) {
-      lines.push(`> 기존 해석: intent="${existing_interpretation.intent}", summary="${existing_interpretation.summary}", addressees=[${existing_interpretation.addressees.join(", ")}], confidence=${existing_interpretation.confidence}`);
+      const addrStr = existing_interpretation.addressees.map((a) => `${a.name}(${a.id})`).join(", ");
+      lines.push(`> 기존 해석: intent="${existing_interpretation.intent}", summary="${existing_interpretation.summary}", addressees=[${addrStr}], confidence=${existing_interpretation.confidence}`);
     }
     lines.push("");
   }
@@ -98,7 +99,7 @@ export function toPromptMessage(
     existing_interpretation = {
       summary: latest.content,
       intent: (meta.intent as string) ?? "",
-      addressees: (meta.addressees as string[]) ?? [],
+      addressees: normalizeAddressees(meta.addressees),
       confidence: (meta.confidence as number) ?? 0,
     };
   }
@@ -114,6 +115,23 @@ export function toPromptMessage(
     },
     existing_interpretation,
   };
+}
+
+/**
+ * DB에 저장된 addressees를 Addressee[]로 정규화한다.
+ * 이전 포맷(string[])과 새 포맷({id,name}[]) 모두 처리한다.
+ */
+function normalizeAddressees(raw: unknown): Addressee[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (typeof item === "string") return { id: item, name: item };
+      if (item && typeof item === "object" && "id" in item) {
+        return { id: String((item as Record<string, unknown>).id), name: String((item as Record<string, unknown>).name ?? (item as Record<string, unknown>).id) };
+      }
+      return null;
+    })
+    .filter((a): a is Addressee => a !== null);
 }
 
 /**
@@ -142,7 +160,7 @@ export const DEFAULT_INTERPRETATION_PROMPT = `당신은 다자간 슬랙 채널 
 위 {{TARGET_COUNT}}개 메시지 각각에 대해 다음 필드를 포함하는 JSON 객체를 생성하십시오:
 
 - **message_id**: 메시지 ID (위 목록에서)
-- **addressees**: 이 메시지의 수신자(들). user_id 목록. 채널 전체에 말하는 경우 빈 배열.
+- **addressees**: 이 메시지의 수신자(들). 각 수신자는 {"id": "user_id", "name": "user_name"} 형태의 객체. 채널 전체에 말하는 경우 빈 배열.
 - **intent**: 발화 의도를 자유 텍스트로. 예시: "질문", "답변", "농담", "정보 공유", "요청", "감사", "동의", "반대", "잡담" 등. 적절한 것이 없으면 자유롭게 생성.
 - **summary**: 메시지의 핵심 의미를 1-2문장으로 요약
 - **confidence**: 해석 확신도 0.0~1.0
@@ -168,7 +186,7 @@ export const DEFAULT_INTERPRETATION_PROMPT = `당신은 다자간 슬랙 채널 
 [
   {
     "message_id": "uuid",
-    "addressees": ["user_id1"],
+    "addressees": [{"id": "user_id1", "name": "표시명"}],
     "intent": "질문",
     "summary": "요약 텍스트",
     "confidence": 0.85,
