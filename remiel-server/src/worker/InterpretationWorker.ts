@@ -45,6 +45,8 @@ export class InterpretationWorker {
   private idleIntervalMs: number;
   private channelLocks = new Set<string>();
   private promptCache: string | null = null;
+  /** 채널별 마지막 해석 시각 — idle 간격 후 소량 배치도 처리하기 위해 사용 */
+  private lastProcessed = new Map<string, number>();
 
   constructor(
     private pool: pg.Pool,
@@ -133,11 +135,14 @@ export class InterpretationWorker {
         0,
       );
 
-      // 트리거 조건: ≥500 토큰이면 즉시, 아니면 이전 실행과의 시간차로 판단
-      // (idleInterval에 의해 자연스럽게 1분 간격이 됨)
+      // 트리거 조건:
+      //   ≥500 토큰 → 즉시 처리
+      //   <500 토큰 → idle 간격(1분) 경과 후 처리
       if (uninterpretedTokens < TOKEN_THRESHOLD) {
-        // 토큰 부족 — idleInterval로 다음 기회에 처리
-        return false;
+        const lastTs = this.lastProcessed.get(channelId) ?? 0;
+        if (Date.now() - lastTs < this.idleIntervalMs) {
+          return false;
+        }
       }
 
       // 프롬프트 로드
@@ -215,6 +220,7 @@ export class InterpretationWorker {
         );
       }
 
+      this.lastProcessed.set(channelId, Date.now());
       return true;
     } finally {
       this.channelLocks.delete(channelId);
@@ -223,7 +229,7 @@ export class InterpretationWorker {
 
   private async getEnabledChannels(): Promise<{ id: string; name: string }[]> {
     const { rows } = await this.pool.query<{ id: string; name: string }>(
-      "SELECT id, name FROM channels WHERE interpretation_enabled = true",
+      "SELECT id, name FROM channels",
     );
     return rows;
   }
