@@ -15,6 +15,8 @@ export interface SoulstreamClientOpts {
   folderId?: string;
   /** SSE 타임아웃 (ms). 기본 5분 */
   timeoutMs?: number;
+  /** 세션 생성 시 사용할 Claude 모델 (예: 'sonnet-4.6') */
+  model?: string;
 }
 
 export interface SoulstreamSessionResult {
@@ -28,6 +30,7 @@ export class SoulstreamClient {
   private profile?: string;
   private folderId?: string;
   private timeoutMs: number;
+  private model?: string;
 
   constructor(opts: SoulstreamClientOpts) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
@@ -35,6 +38,7 @@ export class SoulstreamClient {
     this.profile = opts.profile;
     this.folderId = opts.folderId;
     this.timeoutMs = opts.timeoutMs ?? 300_000;
+    this.model = opts.model;
   }
 
   /**
@@ -55,6 +59,7 @@ export class SoulstreamClient {
         system_prompt: opts?.systemPrompt,
         use_mcp: false,
         ...(opts?.nodeId && { nodeId: opts.nodeId }),
+        ...(this.model && { model: this.model }),
       }),
     });
 

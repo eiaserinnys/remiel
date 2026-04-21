@@ -51,6 +51,7 @@ async function main() {
         soulstreamAuthToken: soulstreamAuthToken!,
         soulstreamProfile: interpretationAgentId,
         soulstreamFolderId: interpretationFolderId,
+        soulstreamModel: process.env.INTERPRETATION_MODEL,
         soulstreamPreferredNodeId: process.env.SOULSTREAM_PREFERRED_NODE_ID,
         targetWindow: process.env.INTERPRETATION_TARGET_WINDOW
           ? parseInt(process.env.INTERPRETATION_TARGET_WINDOW, 10)

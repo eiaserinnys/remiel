@@ -44,6 +44,7 @@ export interface InterpretationWorkerOpts {
   idleIntervalMs?: number;
   targetWindow?: number;
   priorWindow?: number;
+  soulstreamModel?: string;
 }
 
 export class InterpretationWorker {
@@ -71,6 +72,7 @@ export class InterpretationWorker {
       authToken: opts.soulstreamAuthToken,
       profile: opts.soulstreamProfile,
       folderId: opts.soulstreamFolderId,
+      model: opts.soulstreamModel,
     });
     this.pollIntervalMs = opts.pollIntervalMs ?? POLL_INTERVAL_MS;
     this.idleIntervalMs = opts.idleIntervalMs ?? IDLE_INTERVAL_MS;
