@@ -13,7 +13,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { useMobile } from './hooks/useMobile';
 import { useSSE } from './hooks/useSSE';
 import type { SSEEvent } from './hooks/useSSE';
-import type { Message, MessagesPage } from './api/client';
+import type { Message, MessagesPage, Interpretation } from './api/client';
 
 type MessagesInfiniteData = InfiniteData<MessagesPage>;
 
@@ -78,6 +78,30 @@ function replaceMessage(
     newMessages[idx] = msg;
     return { ...page, messages: newMessages };
   });
+  return changed ? { ...data, pages } : data;
+}
+
+/**
+ * 메시지 목록 캐시에서 특정 메시지의 latest_interpretation을 갱신한다.
+ * SSE로 새 해석이 도착했을 때 메시지 목록의 intent 뱃지를 즉시 반영하기 위해 사용.
+ */
+function updateMessageLatestInterpretation(
+  data: MessagesInfiniteData | undefined,
+  messageId: string,
+  metadataJson: string,
+): MessagesInfiniteData | undefined {
+  if (!data) return data;
+  let changed = false;
+  const pages = data.pages.map((page) => ({
+    ...page,
+    messages: page.messages.map((m) => {
+      if (m.id === messageId) {
+        changed = true;
+        return { ...m, latest_interpretation: metadataJson };
+      }
+      return m;
+    }),
+  }));
   return changed ? { ...data, pages } : data;
 }
 
@@ -162,9 +186,20 @@ function AppInner() {
         queryClient.invalidateQueries({ queryKey: ['enrichment-status'] });
         queryClient.invalidateQueries({ queryKey: ['enrichments'] });
         break;
-      case 'interpretation:created':
+      case 'interpretation:created': {
+        const interp = event.data as Interpretation;
         queryClient.invalidateQueries({ queryKey: ['interpretations'] });
+        // 메시지 목록의 intent 뱃지도 즉시 갱신
+        if (interp.channel_id && interp.message_id && interp.type === 'context') {
+          queryClient.setQueryData<MessagesInfiniteData>(
+            ['messages', interp.channel_id],
+            (prev) => updateMessageLatestInterpretation(
+              prev, interp.message_id!, JSON.stringify(interp.metadata),
+            ),
+          );
+        }
         break;
+      }
     }
   }, []));
 

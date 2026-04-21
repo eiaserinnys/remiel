@@ -1,11 +1,17 @@
 /**
  * 맥락 해석 워커.
- * 채널별로 최근 15개 메시지를 조회 → 소울스트림 세션으로 해석 → 결과 저장.
+ * 채널별로 최근 메시지를 조회 → 소울스트림 세션으로 해석 → 결과 저장.
+ *
+ * 해석 범위: targetWindow(기본 15, .env로 변경 가능) + priorWindow(기본 5) 메시지.
  *
  * 트리거:
  *   - 미해석 텍스트 ≥500토큰(text.length/4) → 즉시
  *   - 미해석 있으나 500토큰 미만 → 1분 간격
  * 채널별 동시 실행 방지: 인메모리 잠금.
+ *
+ * 노드 우선순위:
+ *   - SOULSTREAM_PREFERRED_NODE_ID 설정 → 해당 노드로 세션 생성
+ *   - rate limit 발생 → backoff 기간 동안 least-sessions 폴백, 이후 복귀
  */
 
 import pg from "pg";
@@ -22,8 +28,6 @@ import {
 import { parseResponse, detectChanges, ParseError } from "./parseResponse.js";
 import type { MessageWithInterpretation } from "./buildPrompt.js";
 
-const PRIOR_WINDOW = 5;
-const TARGET_WINDOW = 15;
 const TOKEN_THRESHOLD = 500;
 const IDLE_INTERVAL_MS = 60_000;
 const POLL_INTERVAL_MS = 5_000;
@@ -35,8 +39,11 @@ export interface InterpretationWorkerOpts {
   soulstreamAuthToken: string;
   soulstreamProfile?: string;
   soulstreamFolderId?: string;
+  soulstreamPreferredNodeId?: string;
   pollIntervalMs?: number;
   idleIntervalMs?: number;
+  targetWindow?: number;
+  priorWindow?: number;
 }
 
 export class InterpretationWorker {
@@ -44,6 +51,10 @@ export class InterpretationWorker {
   private soulstream: SoulstreamClient;
   private pollIntervalMs: number;
   private idleIntervalMs: number;
+  private targetWindow: number;
+  private priorWindow: number;
+  private preferredNodeId?: string;
+  private rateLimitedUntil = 0;
   private channelLocks = new Set<string>();
   private promptCache: string | null = null;
   /** 채널별 마지막 해석 시각 — idle 간격 후 소량 배치도 처리하기 위해 사용 */
@@ -63,6 +74,9 @@ export class InterpretationWorker {
     });
     this.pollIntervalMs = opts.pollIntervalMs ?? POLL_INTERVAL_MS;
     this.idleIntervalMs = opts.idleIntervalMs ?? IDLE_INTERVAL_MS;
+    this.targetWindow = opts.targetWindow ?? 15;
+    this.priorWindow = opts.priorWindow ?? 5;
+    this.preferredNodeId = opts.soulstreamPreferredNodeId;
   }
 
   async start(): Promise<void> {
@@ -103,21 +117,33 @@ export class InterpretationWorker {
   }
 
   /**
+   * 현재 유효한 노드 ID를 반환한다.
+   * rate-limit backoff 중이면 undefined를 반환하여 least-sessions 폴백을 유도한다.
+   */
+  private getEffectiveNodeId(): string | undefined {
+    if (!this.preferredNodeId) return undefined;
+    if (Date.now() < this.rateLimitedUntil) {
+      return undefined; // backoff 중 → least-sessions
+    }
+    return this.preferredNodeId;
+  }
+
+  /**
    * 채널 하나를 처리한다.
    * @returns true if interpretation was executed, false if nothing to do
    */
   private async processChannel(channelId: string, channelName: string): Promise<boolean> {
     this.channelLocks.add(channelId);
     try {
-      // 최근 TARGET_WINDOW + PRIOR_WINDOW 메시지 조회
+      // 최근 targetWindow + priorWindow 메시지 조회
       const allMessages = await this.getRecentMessages(
         channelId,
-        TARGET_WINDOW + PRIOR_WINDOW,
+        this.targetWindow + this.priorWindow,
       );
       if (allMessages.length === 0) return false;
 
       // prior / target 분할
-      const priorCount = Math.max(0, allMessages.length - TARGET_WINDOW);
+      const priorCount = Math.max(0, allMessages.length - this.targetWindow);
       const priorMessages = allMessages.slice(0, priorCount);
       const targetMessages = allMessages.slice(priorCount);
 
@@ -160,7 +186,8 @@ export class InterpretationWorker {
       // 소울스트림 세션 실행
       let responseText: string;
       try {
-        const result = await this.soulstream.run(prompt);
+        const nodeId = this.getEffectiveNodeId();
+        const result = await this.soulstream.run(prompt, { nodeId });
         responseText = result.text;
       } catch (err) {
         const errMsg = String(err);
@@ -168,9 +195,11 @@ export class InterpretationWorker {
           `[InterpretationWorker] Soulstream session failed for channel ${channelId}:`,
           err,
         );
-        // Rate limit → 긴 backoff 후 재시도
+        // Rate limit → rateLimitedUntil 설정 + 긴 backoff 후 재시도
         if (errMsg.includes("hit your limit") || errMsg.includes("rate limit")) {
-          console.log(`[InterpretationWorker] Rate limited — backing off ${RATE_LIMIT_BACKOFF_MS / 60000}min`);
+          this.rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+          const nodeInfo = this.preferredNodeId ? ` (preferred: ${this.preferredNodeId})` : '';
+          console.log(`[InterpretationWorker] Rate limited${nodeInfo} — backing off ${RATE_LIMIT_BACKOFF_MS / 60000}min`);
           await this.sleep(RATE_LIMIT_BACKOFF_MS);
         }
         return false;
