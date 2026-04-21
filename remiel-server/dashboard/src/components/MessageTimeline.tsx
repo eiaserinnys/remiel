@@ -4,7 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Bot, User, Paperclip, ArrowDown, ArrowLeft, RefreshCw, MessageSquare } from 'lucide-react';
+import { Bot, User, Paperclip, ArrowDown, ArrowLeft, RefreshCw, MessageSquare, Brain } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '../api/client';
 import type { Message, MessagesPage } from '../api/client';
@@ -55,6 +55,16 @@ function formatDate(ts: string): string {
     return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
     return '';
+  }
+}
+
+function extractIntent(latestInterpretation: string | null): string | null {
+  if (!latestInterpretation) return null;
+  try {
+    const parsed = JSON.parse(latestInterpretation);
+    return typeof parsed?.intent === 'string' ? parsed.intent : null;
+  } catch {
+    return null;
   }
 }
 
@@ -613,6 +623,18 @@ function MessageRow({ msg, selected, onClick }: MessageRowProps) {
               <Paperclip size={12} />
             </span>
           )}
+          {(() => {
+            const intent = extractIntent(msg.latest_interpretation);
+            return intent ? (
+              <span
+                className="flex items-center gap-0.5 text-[10px] text-purple-600 dark:text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded-[5px] shrink-0 max-w-[120px] truncate"
+                title={intent}
+              >
+                <Brain size={10} className="shrink-0" />
+                {intent}
+              </span>
+            ) : null;
+          })()}
           {msg.reply_count > 0 && (
             <span
               className="flex items-center gap-0.5 text-[10px] text-brand bg-brand/10 px-1.5 py-0.5 rounded-[5px] shrink-0"

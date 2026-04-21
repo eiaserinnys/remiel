@@ -12,4 +12,8 @@ export class ChannelService {
   async list(): Promise<Channel[]> {
     return channelQueries.listChannels(this.pool);
   }
+
+  async update(id: string, updates: { interpretation_enabled?: boolean }): Promise<Channel> {
+    return channelQueries.updateChannel(this.pool, id, updates);
+  }
 }

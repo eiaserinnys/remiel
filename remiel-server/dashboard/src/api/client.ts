@@ -2,9 +2,17 @@ export interface Channel {
   id: string;
   name: string;
   source: string;
+  interpretation_enabled: boolean;
   message_count: number;
   last_message_at: string | null;
   created_at: string;
+}
+
+export interface InterpretationPrompt {
+  key: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Attachment {
@@ -28,6 +36,7 @@ export interface Message {
   is_bot: boolean;
   enrichment_count: number;
   reply_count: number;
+  latest_interpretation: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -134,4 +143,30 @@ export const api = {
   /** Returns a proxied URL for Slack private files */
   fileProxyUrl: (url: string) =>
     `/api/files/proxy?url=${encodeURIComponent(url)}`,
+
+  getPrompts: () => fetchJSON<InterpretationPrompt[]>('/api/prompts'),
+
+  getPrompt: (key: string) => fetchJSON<InterpretationPrompt>(`/api/prompts/${key}`),
+
+  updatePrompt: async (key: string, content: string) => {
+    const res = await fetch(`/api/prompts/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<InterpretationPrompt>;
+  },
+
+  updateChannel: async (id: string, updates: { interpretation_enabled?: boolean }) => {
+    const res = await fetch(`/api/channels/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<Channel>;
+  },
 };

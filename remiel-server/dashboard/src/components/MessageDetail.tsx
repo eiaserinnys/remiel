@@ -6,6 +6,7 @@ import remarkBreaks from 'remark-breaks';
 import { Bot, User, Brain, Paperclip, Link, FileText, Image, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '../api/client';
 import type { Message, MessagesPage, Interpretation, EnrichmentItem, CrawlResult, AttachmentResult, Attachment } from '../api/client';
+import { ContextInterpretationCard } from './ContextInterpretationCard';
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
 
@@ -189,23 +190,27 @@ export function MessageDetail({ channelId, messageId }: MessageDetailProps) {
                 Interpretations ({interpretations.length})
               </span>
             </div>
-            {interpretations.map((interp: Interpretation) => (
-              <div key={interp.id} className="px-4 py-3 border-t border-border/30">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-[11px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-[5px]">
-                    {interp.type}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {new Date(interp.created_at).toLocaleString()}
-                  </span>
+            {interpretations.map((interp: Interpretation) =>
+              interp.type === 'context' ? (
+                <ContextInterpretationCard key={interp.id} interpretation={interp} />
+              ) : (
+                <div key={interp.id} className="px-4 py-3 border-t border-border/30">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-[11px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-[5px]">
+                      {interp.type}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {new Date(interp.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="prose-remiel text-sm">
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                      {interp.content}
+                    </ReactMarkdown>
+                  </div>
                 </div>
-                <div className="prose-remiel text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                    {interp.content}
-                  </ReactMarkdown>
-                </div>
-              </div>
-            ))}
+              ),
+            )}
           </div>
         )}
       </div>

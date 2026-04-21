@@ -8,6 +8,7 @@ import { EnrichmentService } from "./services/EnrichmentService.js";
 import { EventBus } from "./shared/EventBus.js";
 import { EnrichmentWorker } from "./worker/EnrichmentWorker.js";
 import { InterpretationWorker } from "./worker/InterpretationWorker.js";
+import { PromptService } from "./services/PromptService.js";
 import { registerRoutes } from "./api/routes.js";
 import { migrate } from "./db/migrate.js";
 import { seedDefaultPrompt } from "./db/queries/prompts.js";
@@ -22,19 +23,12 @@ async function main() {
   const channelService = new ChannelService(pool);
   const interpretationService = new InterpretationService(pool, eventBus);
 
+  const promptService = new PromptService(pool);
+
   const server = await createServer();
   const slackBotToken = process.env.SLACK_BOT_TOKEN;
-  registerRoutes(server, { messageService, channelService, interpretationService, enrichmentService, eventBus, slackBotToken });
 
-  // Start enrichment worker in background
-  const enrichmentWorker = new EnrichmentWorker(pool, eventBus, {
-    slackBotToken: process.env.SLACK_BOT_TOKEN,
-  });
-  enrichmentWorker.start().catch((err) => {
-    console.error("[EnrichmentWorker] Fatal error:", err);
-  });
-
-  // Start interpretation worker (conditional)
+  // Start interpretation worker (create before registerRoutes so routes can reference it)
   let interpretationWorker: InterpretationWorker | undefined;
   const interpretationEnabled = process.env.INTERPRETATION_ENABLED === "true";
   if (interpretationEnabled) {
@@ -50,11 +44,26 @@ async function main() {
         soulstreamProfile: process.env.SOULSTREAM_PROFILE,
         soulstreamFolderId: process.env.SOULSTREAM_FOLDER_ID,
       });
-      interpretationWorker.start().catch((err) => {
-        console.error("[InterpretationWorker] Fatal error:", err);
-      });
     }
   }
+
+  registerRoutes(server, {
+    messageService, channelService, interpretationService, enrichmentService,
+    promptService, interpretationWorker, eventBus, slackBotToken,
+  });
+
+  // Start enrichment worker in background
+  const enrichmentWorker = new EnrichmentWorker(pool, eventBus, {
+    slackBotToken: process.env.SLACK_BOT_TOKEN,
+  });
+  enrichmentWorker.start().catch((err) => {
+    console.error("[EnrichmentWorker] Fatal error:", err);
+  });
+
+  // Start interpretation worker
+  interpretationWorker?.start().catch((err) => {
+    console.error("[InterpretationWorker] Fatal error:", err);
+  });
 
   const port = parseInt(process.env.PORT ?? "3120");
   await server.listen({ host: "0.0.0.0", port });
