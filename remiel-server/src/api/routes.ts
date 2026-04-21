@@ -6,6 +6,8 @@ import type { MessageService } from "../services/MessageService.js";
 import type { ChannelService } from "../services/ChannelService.js";
 import type { InterpretationService } from "../services/InterpretationService.js";
 import type { EnrichmentService } from "../services/EnrichmentService.js";
+import type { PromptService } from "../services/PromptService.js";
+import type { InterpretationWorker } from "../worker/InterpretationWorker.js";
 import type { EventBus } from "../shared/EventBus.js";
 
 export interface Services {
@@ -13,6 +15,8 @@ export interface Services {
   channelService: ChannelService;
   interpretationService: InterpretationService;
   enrichmentService: EnrichmentService;
+  promptService?: PromptService;
+  interpretationWorker?: InterpretationWorker;
   eventBus?: EventBus;
   slackBotToken?: string;
 }
@@ -21,7 +25,7 @@ const PROXY_USER_AGENT = "Remiel/1.0 (file proxy)";
 const PROXY_TIMEOUT_MS = 15_000;
 
 export function registerRoutes(app: FastifyInstance, services: Services): void {
-  const { messageService, channelService, interpretationService, enrichmentService, eventBus, slackBotToken } = services;
+  const { messageService, channelService, interpretationService, enrichmentService, promptService, interpretationWorker, eventBus, slackBotToken } = services;
 
   // Health
   app.get("/api/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
@@ -167,6 +171,44 @@ export function registerRoutes(app: FastifyInstance, services: Services): void {
       return;
     }
     return result;
+  });
+
+  // Prompts
+  if (promptService) {
+    app.get("/api/prompts", async () => {
+      return promptService.list();
+    });
+
+    app.get<{
+      Params: { key: string };
+    }>("/api/prompts/:key", async (req, reply) => {
+      const { key } = req.params;
+      const prompt = await promptService.get(key);
+      if (!prompt) {
+        reply.code(404).send({ error: "Prompt not found" });
+        return;
+      }
+      return prompt;
+    });
+
+    app.put<{
+      Params: { key: string };
+    }>("/api/prompts/:key", async (req) => {
+      const { key } = req.params;
+      const { content } = req.body as { content: string };
+      const result = await promptService.update(key, content);
+      interpretationWorker?.invalidatePromptCache();
+      return result;
+    });
+  }
+
+  // Channel update (interpretation_enabled toggle)
+  app.patch<{
+    Params: { channelId: string };
+  }>("/api/channels/:channelId", async (req) => {
+    const { channelId } = req.params;
+    const { interpretation_enabled } = req.body as { interpretation_enabled?: boolean };
+    return channelService.update(channelId, { interpretation_enabled });
   });
 
   // File proxy — serves Slack private files with bot token auth + disk cache

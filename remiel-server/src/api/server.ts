@@ -27,12 +27,24 @@ export async function createServer() {
     if (url.startsWith("/api/auth/")) return;
 
     // Bot → server write API: x-api-key auth
+    // Dashboard write API (prompts, channel toggle): also accepts JWT cookie
     if (method !== "GET" && url.startsWith("/api/")) {
       const key = req.headers["x-api-key"];
-      if (!key || key !== process.env["API_KEY"]) {
-        return reply.code(401).send({ error: "Unauthorized" });
+      if (key && key === process.env["API_KEY"]) {
+        return; // Bot auth OK
       }
-      return;
+      // Fallthrough to JWT cookie check for dashboard writes
+      if (isSlackConfigured()) {
+        const token = (req.cookies as Record<string, string>)[JWT_COOKIE];
+        if (token) {
+          const user = await verifyJwt(token);
+          if (user) return; // Dashboard JWT auth OK
+        }
+      } else {
+        // Slack OAuth 미설정 → 개발 모드, 인증 건너뛰기
+        return;
+      }
+      return reply.code(401).send({ error: "Unauthorized" });
     }
 
     // Dashboard (GET /api/*) + SSE (/events): JWT cookie auth

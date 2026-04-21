@@ -7,6 +7,7 @@ import { MobileLayout } from './components/Layout/MobileLayout';
 import { ChannelList } from './components/ChannelList';
 import { MessageTimeline } from './components/MessageTimeline';
 import { MessageDetail } from './components/MessageDetail';
+import { PromptsPage } from './pages/PromptsPage';
 import { StatusBar } from './components/StatusBar';
 import { ThemeToggle } from './components/ThemeToggle';
 import { useMobile } from './hooks/useMobile';
@@ -90,7 +91,10 @@ const queryClient = new QueryClient({
   },
 });
 
+type Page = 'messages' | 'prompts';
+
 function AppInner() {
+  const [page, setPage] = useState<Page>('messages');
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [threadTs, setThreadTs] = useState<string | null>(null);
@@ -178,13 +182,37 @@ function AppInner() {
         <span className="text-sm font-semibold text-white tracking-[-0.28px] font-sans shrink-0">
           remiel
         </span>
+        <nav className="flex items-center gap-1 ml-4">
+          <button
+            onClick={() => setPage('messages')}
+            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              page === 'messages'
+                ? 'text-white bg-white/15'
+                : 'text-white/60 hover:text-white/90'
+            }`}
+          >
+            Messages
+          </button>
+          <button
+            onClick={() => setPage('prompts')}
+            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              page === 'prompts'
+                ? 'text-white bg-white/15'
+                : 'text-white/60 hover:text-white/90'
+            }`}
+          >
+            Prompts
+          </button>
+        </nav>
         <div className="flex-1" />
         <ThemeToggle />
       </div>
 
       {/* Layout */}
       <div className="flex-1 overflow-hidden">
-        {isMobile ? (
+        {page === 'prompts' ? (
+          <PromptsPage onBack={() => setPage('messages')} />
+        ) : isMobile ? (
           <MobileLayout
             selectedChannelId={selectedChannelId}
             selectedMessageId={selectedMessageId}
