@@ -28,6 +28,7 @@ const TOKEN_THRESHOLD = 500;
 const IDLE_INTERVAL_MS = 60_000;
 const POLL_INTERVAL_MS = 5_000;
 const MAX_RETRIES = 2;
+const RATE_LIMIT_BACKOFF_MS = 5 * 60_000; // 5분 backoff on rate limit
 
 export interface InterpretationWorkerOpts {
   soulstreamBaseUrl: string;
@@ -162,10 +163,16 @@ export class InterpretationWorker {
         const result = await this.soulstream.run(prompt);
         responseText = result.text;
       } catch (err) {
+        const errMsg = String(err);
         console.error(
           `[InterpretationWorker] Soulstream session failed for channel ${channelId}:`,
           err,
         );
+        // Rate limit → 긴 backoff 후 재시도
+        if (errMsg.includes("hit your limit") || errMsg.includes("rate limit")) {
+          console.log(`[InterpretationWorker] Rate limited — backing off ${RATE_LIMIT_BACKOFF_MS / 60000}min`);
+          await this.sleep(RATE_LIMIT_BACKOFF_MS);
+        }
         return false;
       }
 
