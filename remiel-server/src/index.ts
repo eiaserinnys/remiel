@@ -34,15 +34,23 @@ async function main() {
   if (interpretationEnabled) {
     const soulstreamBaseUrl = process.env.SOULSTREAM_URL;
     const soulstreamAuthToken = process.env.SOULSTREAM_TOKEN;
-    if (!soulstreamBaseUrl || !soulstreamAuthToken) {
-      console.error("[InterpretationWorker] SOULSTREAM_URL and SOULSTREAM_TOKEN are required");
+    const interpretationAgentId = process.env.INTERPRETATION_AGENT_ID;
+    const interpretationFolderId = process.env.INTERPRETATION_FOLDER_ID;
+    const missing = [
+      !soulstreamBaseUrl && "SOULSTREAM_URL",
+      !soulstreamAuthToken && "SOULSTREAM_TOKEN",
+      !interpretationAgentId && "INTERPRETATION_AGENT_ID",
+      !interpretationFolderId && "INTERPRETATION_FOLDER_ID",
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      console.error(`[InterpretationWorker] Missing required env vars: ${missing.join(", ")}`);
     } else {
       await seedDefaultPrompt(pool);
       interpretationWorker = new InterpretationWorker(pool, interpretationService, eventBus, {
-        soulstreamBaseUrl,
-        soulstreamAuthToken,
-        soulstreamProfile: process.env.INTERPRETATION_AGENT_ID ?? process.env.SOULSTREAM_AGENT_ID,
-        soulstreamFolderId: process.env.INTERPRETATION_FOLDER_ID ?? process.env.SOULSTREAM_FOLDER_ID,
+        soulstreamBaseUrl: soulstreamBaseUrl!,
+        soulstreamAuthToken: soulstreamAuthToken!,
+        soulstreamProfile: interpretationAgentId,
+        soulstreamFolderId: interpretationFolderId,
         soulstreamPreferredNodeId: process.env.SOULSTREAM_PREFERRED_NODE_ID,
         targetWindow: process.env.INTERPRETATION_TARGET_WINDOW
           ? parseInt(process.env.INTERPRETATION_TARGET_WINDOW, 10)

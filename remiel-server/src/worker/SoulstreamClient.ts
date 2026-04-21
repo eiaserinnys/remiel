@@ -51,7 +51,7 @@ export class SoulstreamClient {
       body: JSON.stringify({
         prompt,
         profile: this.profile,
-        folder_id: this.folderId,
+        folderId: this.folderId,
         system_prompt: opts?.systemPrompt,
         use_mcp: false,
         ...(opts?.nodeId && { nodeId: opts.nodeId }),
