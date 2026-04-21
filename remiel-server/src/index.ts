@@ -32,16 +32,16 @@ async function main() {
   let interpretationWorker: InterpretationWorker | undefined;
   const interpretationEnabled = process.env.INTERPRETATION_ENABLED === "true";
   if (interpretationEnabled) {
-    const soulstreamBaseUrl = process.env.SOULSTREAM_BASE_URL;
-    const soulstreamAuthToken = process.env.SOULSTREAM_AUTH_TOKEN;
+    const soulstreamBaseUrl = process.env.SOULSTREAM_URL;
+    const soulstreamAuthToken = process.env.SOULSTREAM_TOKEN;
     if (!soulstreamBaseUrl || !soulstreamAuthToken) {
-      console.error("[InterpretationWorker] SOULSTREAM_BASE_URL and SOULSTREAM_AUTH_TOKEN are required");
+      console.error("[InterpretationWorker] SOULSTREAM_URL and SOULSTREAM_TOKEN are required");
     } else {
       await seedDefaultPrompt(pool);
       interpretationWorker = new InterpretationWorker(pool, interpretationService, eventBus, {
         soulstreamBaseUrl,
         soulstreamAuthToken,
-        soulstreamProfile: process.env.SOULSTREAM_PROFILE,
+        soulstreamProfile: process.env.SOULSTREAM_AGENT_ID,
         soulstreamFolderId: process.env.SOULSTREAM_FOLDER_ID,
       });
     }
