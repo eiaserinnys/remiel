@@ -43,6 +43,13 @@ async function main() {
         soulstreamAuthToken,
         soulstreamProfile: process.env.SOULSTREAM_AGENT_ID,
         soulstreamFolderId: process.env.SOULSTREAM_FOLDER_ID,
+        soulstreamPreferredNodeId: process.env.SOULSTREAM_PREFERRED_NODE_ID,
+        targetWindow: process.env.INTERPRETATION_TARGET_WINDOW
+          ? parseInt(process.env.INTERPRETATION_TARGET_WINDOW, 10)
+          : undefined,
+        priorWindow: process.env.INTERPRETATION_PRIOR_WINDOW
+          ? parseInt(process.env.INTERPRETATION_PRIOR_WINDOW, 10)
+          : undefined,
       });
     }
   }

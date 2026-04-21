@@ -40,7 +40,7 @@ export class SoulstreamClient {
   /**
    * 소울스트림 세션을 생성하고 SSE 스트리밍으로 텍스트 응답을 수집한다.
    */
-  async run(prompt: string, systemPrompt?: string): Promise<SoulstreamSessionResult> {
+  async run(prompt: string, opts?: { systemPrompt?: string; nodeId?: string }): Promise<SoulstreamSessionResult> {
     // 1. 세션 생성
     const createRes = await fetch(`${this.baseUrl}/api/sessions`, {
       method: "POST",
@@ -52,8 +52,9 @@ export class SoulstreamClient {
         prompt,
         profile: this.profile,
         folder_id: this.folderId,
-        system_prompt: systemPrompt,
+        system_prompt: opts?.systemPrompt,
         use_mcp: false,
+        ...(opts?.nodeId && { nodeId: opts.nodeId }),
       }),
     });
 
