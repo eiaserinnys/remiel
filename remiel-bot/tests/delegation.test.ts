@@ -502,3 +502,61 @@ describe("DelegationManager — 만료 로직", () => {
     manager.destroy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// DelegationManager — caller_info wire 운반
+// ---------------------------------------------------------------------------
+
+describe("DelegationManager — caller_info wire 운반", () => {
+  let manager: DelegationManager;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    // fetch가 절대 완료되지 않는 스트림 — body 인자 검사용
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => new Promise(() => {}),
+          releaseLock: () => {},
+        }),
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    manager.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  it("startSSEStream의 POST body에 caller_info가 박힌다 (source='agent', purpose='delegation')", async () => {
+    manager = new DelegationManager("http://localhost:4105", "token", "remiel");
+    await manager.delegate("의뢰 내용", "");
+
+    // delegate 내부에서 SSE 스트림이 background 시작되므로 한 tick 대기
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://localhost:4105/execute");
+    const body = JSON.parse(String(init?.body));
+    expect(body.caller_info).toEqual({
+      source: "agent",
+      agent_id: "remiel",
+      purpose: "delegation",
+    });
+  });
+
+  it("agent_id는 생성자가 받은 agentId 인자를 그대로 사용한다", async () => {
+    manager = new DelegationManager("http://localhost:4105", "token", "custom-agent");
+    await manager.delegate("의뢰 내용", "");
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String(init?.body));
+    expect(body.caller_info.agent_id).toBe("custom-agent");
+  });
+});
