@@ -73,6 +73,13 @@ export class InterpretationWorker {
       profile: opts.soulstreamProfile,
       folderId: opts.soulstreamFolderId,
       model: opts.soulstreamModel,
+      // 시스템 발신 워커임을 명시 — orch push 화이트리스트(slack/browser/soul-app) 외로
+      // 자연 차단되어 사용자에게 알림이 가지 않는다.
+      callerInfo: {
+        source: "agent",
+        agent_id: "remiel",
+        purpose: "intent-interpretation",
+      },
     });
     this.pollIntervalMs = opts.pollIntervalMs ?? POLL_INTERVAL_MS;
     this.idleIntervalMs = opts.idleIntervalMs ?? IDLE_INTERVAL_MS;

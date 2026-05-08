@@ -161,6 +161,16 @@ export class DelegationManager {
         use_mcp: true,
         agent_session_id: this.agentId,
         profile: this.agentId,
+        // 시스템 발신 위임 세션임을 명시 — orch push 화이트리스트
+        // (slack/browser/soul-app) 외로 자연 차단된다. 미전달 시 orch는
+        // source='execute-proxy'(execute_proxy.py:106), soul-server는
+        // source='api'(api/tasks.py:121)로 fallback하여 이미 차단되지만,
+        // 신원을 진입점에서 명시하는 정본 하나 원칙을 따라 박는다.
+        caller_info: {
+          source: "agent",
+          agent_id: this.agentId,
+          purpose: "delegation",
+        },
       }),
       signal: req.abortController.signal,
     });

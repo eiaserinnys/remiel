@@ -17,6 +17,12 @@ export interface SoulstreamClientOpts {
   timeoutMs?: number;
   /** 세션 생성 시 사용할 Claude 모델 (예: 'sonnet-4.6') */
   model?: string;
+  /** 발신자 정보. orch는 push 화이트리스트(slack/browser/soul-app)에서 caller_info.source를
+   *  기준으로 알림 발사 여부를 결정한다 (orch-server push/notifier.py:120-124,172-175).
+   *  source='agent'를 박으면 자연 차단된다. 미전달 시 orch가 build_browser_caller_info로
+   *  fallback하여 source='browser'로 강제되어 알림이 발사되므로, 시스템 발신 워커는
+   *  반드시 명시한다. */
+  callerInfo?: Record<string, unknown>;
 }
 
 export interface SoulstreamSessionResult {
@@ -31,6 +37,7 @@ export class SoulstreamClient {
   private folderId?: string;
   private timeoutMs: number;
   private model?: string;
+  private callerInfo?: Record<string, unknown>;
 
   constructor(opts: SoulstreamClientOpts) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
@@ -39,6 +46,7 @@ export class SoulstreamClient {
     this.folderId = opts.folderId;
     this.timeoutMs = opts.timeoutMs ?? 300_000;
     this.model = opts.model;
+    this.callerInfo = opts.callerInfo;
   }
 
   /**
@@ -60,6 +68,9 @@ export class SoulstreamClient {
         use_mcp: false,
         ...(opts?.nodeId && { nodeId: opts.nodeId }),
         ...(this.model && { model: this.model }),
+        // callerInfo 미전달 시에는 키를 누락하여 orch fallback(build_browser_caller_info)을
+        // 그대로 보존한다. 시스템 발신 워커는 반드시 옵션에 명시한다.
+        ...(this.callerInfo && { caller_info: this.callerInfo }),
       }),
     });
 
