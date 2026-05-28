@@ -27,6 +27,11 @@ import {
 } from "./buildPrompt.js";
 import { parseResponse, detectChanges, ParseError } from "./parseResponse.js";
 import type { MessageWithInterpretation } from "./buildPrompt.js";
+import {
+  DEFAULT_CONFIDENCE_THRESHOLD,
+  getInterpretationStatus,
+  normalizeConfidenceThreshold,
+} from "../services/interpretationLookup.js";
 
 const TOKEN_THRESHOLD = 500;
 const IDLE_INTERVAL_MS = 60_000;
@@ -45,6 +50,12 @@ export interface InterpretationWorkerOpts {
   targetWindow?: number;
   priorWindow?: number;
   soulstreamModel?: string;
+  confidenceThreshold?: number;
+}
+
+interface LoadedMessageWithInterpretation extends MessageWithInterpretation {
+  sourceMessage: Message;
+  latestContextInterpretation: Interpretation | null;
 }
 
 export class InterpretationWorker {
@@ -54,6 +65,7 @@ export class InterpretationWorker {
   private idleIntervalMs: number;
   private targetWindow: number;
   private priorWindow: number;
+  private confidenceThreshold: number;
   private preferredNodeId?: string;
   private rateLimitedUntil = 0;
   private channelLocks = new Set<string>();
@@ -85,6 +97,9 @@ export class InterpretationWorker {
     this.idleIntervalMs = opts.idleIntervalMs ?? IDLE_INTERVAL_MS;
     this.targetWindow = opts.targetWindow ?? 15;
     this.priorWindow = opts.priorWindow ?? 5;
+    this.confidenceThreshold = normalizeConfidenceThreshold(
+      opts.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
+    );
     this.preferredNodeId = opts.soulstreamPreferredNodeId;
   }
 
@@ -162,11 +177,17 @@ export class InterpretationWorker {
         this.loadInterpretations(targetMessages),
       ]);
 
-      // 미해석 메시지 토큰 계산
-      const uninterpreted = targetWithInterps.filter((m) => !m.existing_interpretation);
-      if (uninterpreted.length === 0) return false;
+      const needsInterpretation = targetWithInterps.filter((m) => {
+        const status = getInterpretationStatus(
+          m.sourceMessage,
+          m.latestContextInterpretation,
+          this.confidenceThreshold,
+        );
+        return status.status !== "ready";
+      });
+      if (needsInterpretation.length === 0) return false;
 
-      const uninterpretedTokens = uninterpreted.reduce(
+      const uninterpretedTokens = needsInterpretation.reduce(
         (sum, m) => sum + estimateTokens(m.message.content),
         0,
       );
@@ -274,7 +295,7 @@ export class InterpretationWorker {
 
   private async getEnabledChannels(): Promise<{ id: string; name: string }[]> {
     const { rows } = await this.pool.query<{ id: string; name: string }>(
-      "SELECT id, name FROM channels",
+      "SELECT id, name FROM channels WHERE interpretation_enabled = true",
     );
     return rows;
   }
@@ -294,11 +315,16 @@ export class InterpretationWorker {
 
   private async loadInterpretations(
     messages: Message[],
-  ): Promise<MessageWithInterpretation[]> {
-    const result: MessageWithInterpretation[] = [];
+  ): Promise<LoadedMessageWithInterpretation[]> {
+    const result: LoadedMessageWithInterpretation[] = [];
     for (const msg of messages) {
       const interps = await this.getContextInterpretations(msg.id);
-      result.push(toPromptMessage(msg, interps));
+      const contextInterps = interps.filter((i) => i.type === "context");
+      result.push({
+        ...toPromptMessage(msg, interps),
+        sourceMessage: msg,
+        latestContextInterpretation: contextInterps[contextInterps.length - 1] ?? null,
+      });
     }
     return result;
   }

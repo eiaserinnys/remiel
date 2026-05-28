@@ -152,6 +152,93 @@ describe("MessageForwarder", () => {
       expect(body.thread_ts).toBe("1234.5678");
     });
 
+    it("first-seen 채널은 메시지 POST 전에 채널 등록을 await한다", async () => {
+      const resolver = createMockResolver({
+        U001: { name: "사용자", avatarUrl: null },
+      });
+      const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
+      forwarder.setUserResolver(resolver);
+      forwarder.setWebClient(createMockWebClient({ C123: "general" }));
+
+      await forwarder.forwardMessage({
+        channel: "C123",
+        ts: "1234.5678",
+        user: "U001",
+        text: "안녕하세요",
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0][0]).toBe(`${SERVER_URL}/api/channels`);
+      expect(fetchMock.mock.calls[1][0]).toBe(`${SERVER_URL}/api/messages`);
+    });
+
+    it("등록된 채널의 후속 메시지는 채널 등록을 반복하지 않는다", async () => {
+      const resolver = createMockResolver({
+        U001: { name: "사용자", avatarUrl: null },
+      });
+      const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
+      forwarder.setUserResolver(resolver);
+      forwarder.setWebClient(createMockWebClient({ C123: "general" }));
+
+      await forwarder.forwardMessage({ channel: "C123", ts: "1.0", user: "U001", text: "one" });
+      await forwarder.forwardMessage({ channel: "C123", ts: "2.0", user: "U001", text: "two" });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+        `${SERVER_URL}/api/channels`,
+        `${SERVER_URL}/api/messages`,
+        `${SERVER_URL}/api/messages`,
+      ]);
+    });
+
+    it("메시지 POST non-2xx 응답은 실패를 드러낸다", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        text: async () => "boom",
+      });
+      const resolver = createMockResolver({
+        U001: { name: "사용자", avatarUrl: null },
+      });
+      const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
+      forwarder.setUserResolver(resolver);
+
+      await expect(
+        forwarder.forwardMessage({
+          channel: "C123",
+          ts: "1234.5678",
+          user: "U001",
+          text: "안녕하세요",
+        }),
+      ).rejects.toThrow("POST /api/messages failed: 500 Internal Server Error boom");
+    });
+
+    it("채널 등록 non-2xx 응답이면 메시지 POST로 진행하지 않는다", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        text: async () => "not ready",
+      });
+      const resolver = createMockResolver({
+        U001: { name: "사용자", avatarUrl: null },
+      });
+      const forwarder = new MessageForwarder(SERVER_URL, API_KEY);
+      forwarder.setUserResolver(resolver);
+      forwarder.setWebClient(createMockWebClient({ C123: "general" }));
+
+      await expect(
+        forwarder.forwardMessage({
+          channel: "C123",
+          ts: "1234.5678",
+          user: "U001",
+          text: "안녕하세요",
+        }),
+      ).rejects.toThrow("POST /api/channels failed: 503 Service Unavailable not ready");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("파일 첨부를 attachments로 변환한다", async () => {
       const resolver = createMockResolver({
         U001: { name: "사용자", avatarUrl: null },

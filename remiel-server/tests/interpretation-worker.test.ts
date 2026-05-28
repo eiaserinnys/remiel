@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { parseSSEData } from "../src/worker/SoulstreamClient.js";
 import { buildPrompt, estimateTokens, toPromptMessage } from "../src/worker/buildPrompt.js";
 import { parseResponse, detectChanges, ParseError } from "../src/worker/parseResponse.js";
+import { InterpretationWorker } from "../src/worker/InterpretationWorker.js";
+import {
+  DEFAULT_CONFIDENCE_THRESHOLD,
+  getInterpretationStatus,
+} from "../src/services/interpretationLookup.js";
 import type { Message, Interpretation } from "../src/types/index.js";
 import type { MessageWithInterpretation } from "../src/worker/buildPrompt.js";
 
@@ -356,5 +361,115 @@ describe("detectChanges", () => {
       },
     ];
     expect(detectChanges(newInterps, existingMap)).toHaveLength(1);
+  });
+});
+
+// ─── 워커 재해석 정책 ───
+
+describe("InterpretationWorker policy", () => {
+  const makeMessage = (overrides?: Partial<Message>): Message => ({
+    id: "msg-1",
+    channel_id: "C1",
+    ts: "1000.001",
+    thread_ts: null,
+    user_id: "U1",
+    user_name: "alice",
+    avatar_url: null,
+    content: "hello",
+    attachments: [],
+    reactions: [],
+    is_bot: false,
+    is_deleted: false,
+    source_edited: false,
+    enrichment_count: 0,
+    reply_count: 0,
+    latest_interpretation: null,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  });
+
+  const makeInterpretation = (overrides?: Partial<Interpretation>): Interpretation => ({
+    id: "interp-1",
+    channel_id: "C1",
+    message_id: "msg-1",
+    thread_ts: null,
+    type: "context",
+    content: "summary from content",
+    metadata: {
+      intent: "질문",
+      addressees: [{ id: "U2", name: "bob" }],
+      confidence: 0.9,
+      adversarial_note: null,
+    },
+    created_at: "2026-01-01T00:01:00.000Z",
+    ...overrides,
+  });
+
+  it("기본 confidence threshold는 0.75다", () => {
+    expect(DEFAULT_CONFIDENCE_THRESHOLD).toBe(0.75);
+  });
+
+  it("confidence가 0.75 미만이면 low_confidence로 재해석 대상이 된다", () => {
+    const status = getInterpretationStatus(
+      makeMessage(),
+      makeInterpretation({ metadata: { intent: "질문", addressees: [], confidence: 0.74 } }),
+      DEFAULT_CONFIDENCE_THRESHOLD,
+    );
+    expect(status.status).toBe("low_confidence");
+  });
+
+  it("message updated_at이 interpretation created_at보다 늦으면 stale로 재해석 대상이 된다", () => {
+    const status = getInterpretationStatus(
+      makeMessage({ updated_at: "2026-01-01T00:02:00.000Z" }),
+      makeInterpretation({ created_at: "2026-01-01T00:01:00.000Z" }),
+      DEFAULT_CONFIDENCE_THRESHOLD,
+    );
+    expect(status.status).toBe("stale");
+  });
+
+  it("metadata가 해석 필드를 담지 못하면 invalid_metadata로 재해석 대상이 된다", () => {
+    const status = getInterpretationStatus(
+      makeMessage(),
+      makeInterpretation({ metadata: { confidence: "높음" } }),
+      DEFAULT_CONFIDENCE_THRESHOLD,
+    );
+    expect(status.status).toBe("invalid_metadata");
+  });
+
+  it("ready 상태는 summary를 interpretation.content에서 읽는다", () => {
+    const status = getInterpretationStatus(
+      makeMessage(),
+      makeInterpretation({
+        content: "content summary wins",
+        metadata: {
+          summary: "wrong metadata summary",
+          intent: "질문",
+          addressees: [],
+          confidence: 0.9,
+        },
+      }),
+      DEFAULT_CONFIDENCE_THRESHOLD,
+    );
+    expect(status.status).toBe("ready");
+    expect(status.summary).toBe("content summary wins");
+  });
+
+  it("getEnabledChannels는 interpretation_enabled=true 채널만 조회한다", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: "C1", name: "enabled" }] });
+    const worker = new InterpretationWorker(
+      { query } as any,
+      {} as any,
+      {} as any,
+      {
+        soulstreamBaseUrl: "http://localhost:1",
+        soulstreamAuthToken: "test",
+      },
+    );
+
+    const rows = await (worker as any).getEnabledChannels();
+
+    expect(rows).toEqual([{ id: "C1", name: "enabled" }]);
+    expect(query.mock.calls[0][0]).toContain("interpretation_enabled = true");
   });
 });

@@ -44,7 +44,7 @@ export class MessageForwarder {
 
     // Auto-register channel on first message
     if (!this.registeredChannels.has(event.channel)) {
-      this.autoRegisterChannel(event.channel).catch(() => {});
+      await this.autoRegisterChannel(event.channel);
     }
 
     const userInfo = event.user
@@ -61,28 +61,21 @@ export class MessageForwarder {
       ?? event.bot_profile?.icons?.image_48
       ?? null;
 
-    await fetch(`${this.serverUrl}/api/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": this.apiKey,
-      },
-      body: JSON.stringify({
-        channel_id: event.channel,
-        ts: event.ts,
-        thread_ts: event.thread_ts ?? null,
-        user_id: userId,
-        user_name: userName,
-        avatar_url: avatarUrl,
-        content: event.text ?? "",
-        attachments: (event.files ?? []).map((f) => ({
-          name: f.name,
-          type: f.filetype,
-          url: f.url_private,
-          size: f.size,
-        })),
-        is_bot: !!event.bot_id,
-      }),
+    await this.postJson("/api/messages", {
+      channel_id: event.channel,
+      ts: event.ts,
+      thread_ts: event.thread_ts ?? null,
+      user_id: userId,
+      user_name: userName,
+      avatar_url: avatarUrl,
+      content: event.text ?? "",
+      attachments: (event.files ?? []).map((f) => ({
+        name: f.name,
+        type: f.filetype,
+        url: f.url_private,
+        size: f.size,
+      })),
+      is_bot: !!event.bot_id,
     });
   }
 
@@ -91,7 +84,7 @@ export class MessageForwarder {
     ts: string,
     updates: Record<string, unknown>,
   ): Promise<void> {
-    await fetch(
+    const response = await fetch(
       `${this.serverUrl}/api/messages/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}`,
       {
         method: "PATCH",
@@ -102,16 +95,18 @@ export class MessageForwarder {
         body: JSON.stringify(updates),
       },
     );
+    await this.requireOk(response, "PATCH /api/messages/:channelId/:ts");
   }
 
   async forwardDelete(channelId: string, ts: string): Promise<void> {
-    await fetch(
+    const response = await fetch(
       `${this.serverUrl}/api/messages/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}`,
       {
         method: "DELETE",
         headers: { "x-api-key": this.apiKey },
       },
     );
+    await this.requireOk(response, "DELETE /api/messages/:channelId/:ts");
   }
 
   private webClient: WebClient | null = null;
@@ -121,25 +116,23 @@ export class MessageForwarder {
   }
 
   private async autoRegisterChannel(channelId: string): Promise<void> {
-    this.registeredChannels.add(channelId);
-    if (!this.webClient) return;
+    if (this.registeredChannels.has(channelId)) return;
+    if (!this.webClient) {
+      this.registeredChannels.add(channelId);
+      return;
+    }
     try {
       const info = await this.webClient.conversations.info({ channel: channelId });
-      await fetch(`${this.serverUrl}/api/channels`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": this.apiKey,
-        },
-        body: JSON.stringify({
-          id: channelId,
-          name: info.channel?.name ?? channelId,
-          source: "slack",
-        }),
+      await this.postJson("/api/channels", {
+        id: channelId,
+        name: info.channel?.name ?? channelId,
+        source: "slack",
       });
+      this.registeredChannels.add(channelId);
       console.log(`[Forwarder] Auto-registered channel ${info.channel?.name ?? channelId}`);
     } catch (err) {
       console.error(`[Forwarder] Failed to auto-register channel ${channelId}:`, err);
+      throw err;
     }
   }
 
@@ -151,22 +144,39 @@ export class MessageForwarder {
     for (const id of channelIds) {
       try {
         const info = await client.conversations.info({ channel: id });
-        await fetch(`${this.serverUrl}/api/channels`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": this.apiKey,
-          },
-          body: JSON.stringify({
-            id,
-            name: info.channel?.name ?? id,
-            source: "slack",
-          }),
+        await this.postJson("/api/channels", {
+          id,
+          name: info.channel?.name ?? id,
+          source: "slack",
         });
         this.registeredChannels.add(id);
       } catch (err) {
         console.error(`[Forwarder] Failed to register channel ${id}:`, err);
       }
     }
+  }
+
+  private async postJson(path: string, body: Record<string, unknown>): Promise<void> {
+    const response = await fetch(`${this.serverUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": this.apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+    await this.requireOk(response, `POST ${path}`);
+  }
+
+  private async requireOk(
+    response: Awaited<ReturnType<typeof fetch>>,
+    label: string,
+  ): Promise<void> {
+    if (response.ok) return;
+    const body = await response.text().catch(() => "");
+    const suffix = body ? ` ${body}` : "";
+    const message = `${label} failed: ${response.status} ${response.statusText}${suffix}`;
+    console.error(`[Forwarder] ${message}`);
+    throw new Error(message);
   }
 }

@@ -175,3 +175,64 @@ export interface ContextInterpretation {
   confidence: number;
   adversarial_note: string | null;
 }
+
+export type InterpretationLookupStatus =
+  | "ready"
+  | "disabled_channel"
+  | "missing_message"
+  | "missing_interpretation"
+  | "low_confidence"
+  | "stale"
+  | "invalid_metadata";
+
+export interface InterpretationLookupInput {
+  channel_id: string;
+  timestamps: string[];
+  confidence_threshold?: number;
+}
+
+export interface InterpretationLookupReadyItem {
+  ts: string;
+  message_id: string;
+  status: "ready";
+  summary: string;
+  intent: string;
+  addressees: Addressee[];
+  confidence: number;
+  adversarial_note: string | null;
+  created_at: string;
+}
+
+export interface InterpretationLookupUnresolvedItem {
+  ts: string;
+  status: Exclude<InterpretationLookupStatus, "ready">;
+  message_id?: string;
+  confidence?: number;
+  threshold?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type InterpretationLookupItem =
+  | InterpretationLookupReadyItem
+  | InterpretationLookupUnresolvedItem;
+
+export interface InterpretationLookupCoverage {
+  requested: number;
+  ready: number;
+  needs_reasoning: number;
+  disabled_channel: number;
+  missing_message: number;
+  missing_interpretation: number;
+  low_confidence: number;
+  stale: number;
+  invalid_metadata: number;
+}
+
+export interface InterpretationLookupResult {
+  channel_id: string;
+  channel_enabled: boolean;
+  confidence_threshold: number;
+  coverage: InterpretationLookupCoverage;
+  items: InterpretationLookupItem[];
+}

@@ -135,6 +135,37 @@ export function registerRoutes(app: FastifyInstance, services: Services): void {
     return interpretationService.store(body);
   });
 
+  app.post("/api/interpretations/lookup", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      channel_id?: unknown;
+      timestamps?: unknown;
+      confidence_threshold?: unknown;
+    };
+
+    if (typeof body.channel_id !== "string" || !Array.isArray(body.timestamps)) {
+      reply.code(400).send({ error: "channel_id and timestamps are required" });
+      return;
+    }
+    if (!body.timestamps.every((ts) => typeof ts === "string")) {
+      reply.code(400).send({ error: "timestamps must be strings" });
+      return;
+    }
+
+    try {
+      return await interpretationService.lookup({
+        channel_id: body.channel_id,
+        timestamps: body.timestamps,
+        confidence_threshold: body.confidence_threshold as number | undefined,
+      });
+    } catch (err) {
+      if (err instanceof RangeError) {
+        reply.code(400).send({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  });
+
   app.get<{
     Params: { messageId: string };
   }>("/api/messages/:messageId/interpretations", async (req) => {
