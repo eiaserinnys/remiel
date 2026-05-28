@@ -109,8 +109,8 @@ export function detectChanges(
     if (!existing?.existing_interpretation) return true; // 기존 해석 없으면 항상 저장
 
     const old = existing.existing_interpretation;
-    const oldIds = old.addressees.map((a) => typeof a === "string" ? a : a.id).sort();
-    const newIds = newInterp.addressees.map((a) => a.id).sort();
+    const oldIds = old.addressees.map(addresseeId).sort();
+    const newIds = newInterp.addressees.map((a) => addresseeId(a as Addressee | string)).sort();
     return (
       old.intent !== newInterp.intent ||
       old.summary !== newInterp.summary ||
@@ -118,6 +118,10 @@ export function detectChanges(
       JSON.stringify(oldIds) !== JSON.stringify(newIds)
     );
   });
+}
+
+function addresseeId(addressee: Addressee | string): string {
+  return typeof addressee === "string" ? addressee : addressee.id;
 }
 
 export class ParseError extends Error {

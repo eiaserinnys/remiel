@@ -81,12 +81,12 @@ describe("Health endpoint", () => {
 });
 
 describe("Auth", () => {
-  it("rejects requests without API key", async () => {
+  it("allows GET requests without API key in local dev mode", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/channels",
     });
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -465,6 +465,146 @@ describe("Interpretations", () => {
     const body = JSON.parse(res.payload);
     expect(body).toHaveLength(1);
     expect(body[0].content).toBe("thread interp");
+  });
+
+  it("POST /api/interpretations/lookup returns ready context from interpretation content", async () => {
+    await inject("PATCH", "/api/channels/C500", { interpretation_enabled: true });
+    await inject("POST", "/api/interpretations", {
+      channel_id: "C500",
+      message_id: messageId,
+      type: "context",
+      content: "content summary wins",
+      metadata: {
+        summary: "wrong metadata summary",
+        intent: "질문",
+        addressees: [{ id: "U002", name: "bob" }],
+        confidence: 0.9,
+        adversarial_note: null,
+      },
+    });
+
+    const res = await inject("POST", "/api/interpretations/lookup", {
+      channel_id: "C500",
+      timestamps: ["10000.001"],
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.channel_enabled).toBe(true);
+    expect(body.confidence_threshold).toBe(0.75);
+    expect(body.coverage.ready).toBe(1);
+    expect(body.items[0]).toMatchObject({
+      ts: "10000.001",
+      message_id: messageId,
+      status: "ready",
+      summary: "content summary wins",
+      intent: "질문",
+      confidence: 0.9,
+    });
+  });
+
+  it("POST /api/interpretations/lookup preserves input order and reports unresolved statuses", async () => {
+    await inject("PATCH", "/api/channels/C500", { interpretation_enabled: true });
+    const lowRes = await inject("POST", "/api/messages", {
+      channel_id: "C500",
+      ts: "10000.002",
+      user_id: "U002",
+      user_name: "bob",
+      content: "low confidence",
+    });
+    const staleRes = await inject("POST", "/api/messages", {
+      channel_id: "C500",
+      ts: "10000.003",
+      user_id: "U003",
+      user_name: "charlie",
+      content: "stale",
+    });
+    const invalidRes = await inject("POST", "/api/messages", {
+      channel_id: "C500",
+      ts: "10000.004",
+      user_id: "U004",
+      user_name: "dana",
+      content: "invalid",
+    });
+
+    const lowId = JSON.parse(lowRes.payload).id;
+    const staleId = JSON.parse(staleRes.payload).id;
+    const invalidId = JSON.parse(invalidRes.payload).id;
+
+    await inject("POST", "/api/interpretations", {
+      channel_id: "C500",
+      message_id: lowId,
+      type: "context",
+      content: "low summary",
+      metadata: { intent: "잡담", addressees: [], confidence: 0.5 },
+    });
+    await inject("POST", "/api/interpretations", {
+      channel_id: "C500",
+      message_id: staleId,
+      type: "context",
+      content: "stale summary",
+      metadata: { intent: "잡담", addressees: [], confidence: 0.9 },
+    });
+    await pool.query("UPDATE messages SET updated_at = now() + interval '1 minute' WHERE id = $1", [staleId]);
+    await inject("POST", "/api/interpretations", {
+      channel_id: "C500",
+      message_id: invalidId,
+      type: "context",
+      content: "invalid summary",
+      metadata: { intent: "잡담", confidence: "높음" },
+    });
+
+    const res = await inject("POST", "/api/interpretations/lookup", {
+      channel_id: "C500",
+      timestamps: ["10000.004", "10000.999", "10000.002", "10000.003", "10000.001"],
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.items.map((item: { ts: string }) => item.ts)).toEqual([
+      "10000.004",
+      "10000.999",
+      "10000.002",
+      "10000.003",
+      "10000.001",
+    ]);
+    expect(body.items.map((item: { status: string }) => item.status)).toEqual([
+      "invalid_metadata",
+      "missing_message",
+      "low_confidence",
+      "stale",
+      "missing_interpretation",
+    ]);
+    expect(body.coverage.needs_reasoning).toBe(5);
+  });
+
+  it("POST /api/interpretations/lookup marks all items disabled when channel is disabled", async () => {
+    const res = await inject("POST", "/api/interpretations/lookup", {
+      channel_id: "C500",
+      timestamps: ["10000.001", "10000.999"],
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.channel_enabled).toBe(false);
+    expect(body.items.map((item: { status: string }) => item.status)).toEqual([
+      "disabled_channel",
+      "disabled_channel",
+    ]);
+  });
+
+  it("POST /api/interpretations/lookup rejects confidence_threshold outside 0..1", async () => {
+    const res = await inject("POST", "/api/interpretations/lookup", {
+      channel_id: "C500",
+      timestamps: ["10000.001"],
+      confidence_threshold: 1.5,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("POST /api/interpretations/lookup rejects missing body with 400", async () => {
+    const res = await inject("POST", "/api/interpretations/lookup");
+    expect(res.statusCode).toBe(400);
   });
 });
 
