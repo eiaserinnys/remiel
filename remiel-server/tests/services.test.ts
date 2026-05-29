@@ -177,6 +177,67 @@ describe("InterpretationService", () => {
     const result = await service.getByThread("C123", "1234.5678");
     expect(result).toHaveLength(0);
   });
+
+  it("lookup returns the latest overlapping window_context", async () => {
+    const mockQuery = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ interpretation_enabled: true }] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "msg-1",
+            channel_id: "C123",
+            ts: "1000.001",
+            thread_ts: null,
+            updated_at: "2026-01-01T00:00:00.000Z",
+            interpretation_id: null,
+            interpretation_content: null,
+            interpretation_metadata: null,
+            interpretation_created_at: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "win-1",
+            channel_id: "C123",
+            message_id: null,
+            thread_ts: null,
+            type: "window_context",
+            content: "최근 배포 순서 논의",
+            metadata: {
+              schema_version: 1,
+              confidence: 0.83,
+              from_ts: "0999.999",
+              to_ts: "1000.100",
+              message_ids: ["msg-0", "msg-1"],
+              target_message_ids: ["msg-1"],
+              candidate_angles: ["배포 순서 확인"],
+              open_loops: ["prompt row 갱신"],
+              avoid_repetition_notes: ["lookup 설명 반복 금지"],
+              participants_focus: ["alice가 확인 요청"],
+            },
+            created_at: "2026-01-01T00:01:00.000Z",
+          },
+        ],
+      });
+    const service = new InterpretationService(createMockPool(mockQuery));
+
+    const result = await service.lookup({
+      channel_id: "C123",
+      timestamps: ["1000.001"],
+    });
+
+    expect(result.window_context).toMatchObject({
+      summary: "최근 배포 순서 논의",
+      confidence: 0.83,
+      from_ts: "0999.999",
+      to_ts: "1000.100",
+      message_ids: ["msg-0", "msg-1"],
+      target_message_ids: ["msg-1"],
+      candidate_angles: ["배포 순서 확인"],
+    });
+  });
 });
 
 describe("EnrichmentService", () => {
