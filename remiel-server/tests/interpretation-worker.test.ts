@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { parseSSEData } from "../src/worker/SoulstreamClient.js";
-import { buildPrompt, estimateTokens, toPromptMessage } from "../src/worker/buildPrompt.js";
+import {
+  buildPrompt,
+  estimateTokens,
+  toPromptMessage,
+  DEFAULT_INTERPRETATION_PROMPT,
+  ensureWindowContextOutputContract,
+} from "../src/worker/buildPrompt.js";
 import { parseResponse, detectChanges, ParseError } from "../src/worker/parseResponse.js";
 import { InterpretationWorker } from "../src/worker/InterpretationWorker.js";
 import {
@@ -136,6 +142,20 @@ describe("buildPrompt", () => {
     });
     expect(result).toBe("");
   });
+
+  it("기본 프롬프트는 window_context object 출력 계약을 포함한다", () => {
+    expect(DEFAULT_INTERPRETATION_PROMPT).toContain('"window_context"');
+    expect(DEFAULT_INTERPRETATION_PROMPT).toContain('"interpretations"');
+  });
+
+  it("오래된 DB 프롬프트에는 window_context 출력 계약을 덧붙인다", () => {
+    const prompt = ensureWindowContextOutputContract("반드시 JSON 배열만 출력하십시오.");
+
+    expect(prompt).toContain("반드시 JSON 배열만 출력하십시오.");
+    expect(prompt).toContain('"window_context"');
+    expect(prompt).toContain('"interpretations"');
+    expect(prompt).toContain("배열 출력 지시보다 우선");
+  });
 });
 
 // ─── toPromptMessage ───
@@ -262,6 +282,52 @@ Some trailing text`;
       '[{"message_id":"m1","addressees":[],"intent":"test","summary":"test","confidence":1.5}]';
     const { interpretations } = parseResponse(text);
     expect(interpretations[0].confidence).toBe(1);
+  });
+
+  it("window_context를 포함한 JSON object 응답을 파싱한다", () => {
+    const text = `\`\`\`json
+{
+  "window_context": {
+    "summary": "이번 창은 배포 순서 논의다",
+    "candidate_angles": ["배포 순서 확인"],
+    "open_loops": ["운영 prompt 갱신 필요"],
+    "avoid_repetition_notes": ["같은 설명 반복 금지"],
+    "participants_focus": ["U1은 결정권자"],
+    "confidence": 0.82
+  },
+  "interpretations": [
+    {
+      "message_id": "m1",
+      "addressees": [{"id": "U1", "name": "alice"}],
+      "intent": "요청",
+      "summary": "배포 순서를 묻는다",
+      "confidence": 0.9,
+      "adversarial_note": null
+    }
+  ]
+}
+\`\`\``;
+
+    const { interpretations, window_context } = parseResponse(text);
+    expect(interpretations).toHaveLength(1);
+    expect(window_context?.summary).toBe("이번 창은 배포 순서 논의다");
+    expect(window_context?.candidate_angles).toEqual(["배포 순서 확인"]);
+    expect(window_context?.confidence).toBe(0.82);
+  });
+
+  it("object 응답에서도 유효한 per-message 해석이 없으면 ParseError를 던진다", () => {
+    const text = JSON.stringify({
+      window_context: {
+        summary: "창 요약",
+        candidate_angles: [],
+        open_loops: [],
+        avoid_repetition_notes: [],
+        participants_focus: [],
+        confidence: 0.8,
+      },
+      interpretations: [],
+    });
+    expect(() => parseResponse(text)).toThrow(ParseError);
   });
 });
 
@@ -471,5 +537,79 @@ describe("InterpretationWorker policy", () => {
 
     expect(rows).toEqual([{ id: "C1", name: "enabled" }]);
     expect(query.mock.calls[0][0]).toContain("interpretation_enabled = true");
+  });
+
+  it("processChannel은 유효한 window_context를 기존 interpretations 테이블에 저장한다", async () => {
+    const messages = [
+      makeMessage({ id: "msg-1", ts: "1000.001", content: "첫 메시지" }),
+      makeMessage({ id: "msg-2", ts: "1000.002", content: "둘째 메시지" }),
+    ];
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [...messages].reverse() })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    const store = vi.fn().mockResolvedValue({});
+    const worker = new InterpretationWorker(
+      { query } as any,
+      { store } as any,
+      {} as any,
+      {
+        soulstreamBaseUrl: "http://localhost:1",
+        soulstreamAuthToken: "test",
+        targetWindow: 2,
+        priorWindow: 0,
+        idleIntervalMs: 0,
+      },
+    );
+    (worker as any).soulstream = {
+      run: vi.fn().mockResolvedValue({
+        text: JSON.stringify({
+          window_context: {
+            summary: "두 메시지는 배포 순서 확인 흐름이다",
+            candidate_angles: ["배포 순서를 짚는다"],
+            open_loops: ["prompt row 갱신 여부"],
+            avoid_repetition_notes: ["이미 언급한 lookup 설명 반복 금지"],
+            participants_focus: ["alice가 확인을 요청함"],
+            confidence: 0.84,
+          },
+          interpretations: [
+            {
+              message_id: "msg-1",
+              addressees: [],
+              intent: "상황 공유",
+              summary: "첫 메시지",
+              confidence: 0.9,
+              adversarial_note: null,
+            },
+            {
+              message_id: "msg-2",
+              addressees: [],
+              intent: "요청",
+              summary: "둘째 메시지",
+              confidence: 0.88,
+              adversarial_note: null,
+            },
+          ],
+        }),
+      }),
+    };
+
+    const didWork = await (worker as any).processChannel("C1", "general");
+
+    expect(didWork).toBe(true);
+    expect(store).toHaveBeenCalledWith(expect.objectContaining({
+      channel_id: "C1",
+      type: "window_context",
+      content: "두 메시지는 배포 순서 확인 흐름이다",
+      metadata: expect.objectContaining({
+        schema_version: 1,
+        confidence: 0.84,
+        from_ts: "1000.001",
+        to_ts: "1000.002",
+        message_ids: ["msg-1", "msg-2"],
+        target_message_ids: ["msg-1", "msg-2"],
+      }),
+    }));
   });
 });

@@ -15,7 +15,7 @@
  */
 
 import pg from "pg";
-import type { Message, Interpretation, ContextInterpretation } from "../types/index.js";
+import type { Message, Interpretation, ContextInterpretation, WindowContext } from "../types/index.js";
 import type { InterpretationService } from "../services/InterpretationService.js";
 import type { EventBus } from "../shared/EventBus.js";
 import { SoulstreamClient } from "./SoulstreamClient.js";
@@ -24,6 +24,7 @@ import {
   toPromptMessage,
   estimateTokens,
   DEFAULT_INTERPRETATION_PROMPT,
+  ensureWindowContextOutputContract,
 } from "./buildPrompt.js";
 import { parseResponse, detectChanges, ParseError } from "./parseResponse.js";
 import type { MessageWithInterpretation } from "./buildPrompt.js";
@@ -237,9 +238,11 @@ export class InterpretationWorker {
 
       // 응답 파싱
       let interpretations: ContextInterpretation[];
+      let windowContext: WindowContext | null;
       try {
         const parsed = parseResponse(responseText);
         interpretations = parsed.interpretations;
+        windowContext = parsed.window_context;
       } catch (err) {
         if (err instanceof ParseError) {
           console.error(
@@ -278,6 +281,10 @@ export class InterpretationWorker {
             adversarial_note: interp.adversarial_note,
           },
         });
+      }
+
+      if (windowContext) {
+        await this.storeWindowContext(channelId, allMessages, targetMessages, windowContext);
       }
 
       if (changed.length > 0) {
@@ -337,6 +344,33 @@ export class InterpretationWorker {
     return rows;
   }
 
+  private async storeWindowContext(
+    channelId: string,
+    allMessages: Message[],
+    targetMessages: Message[],
+    windowContext: WindowContext,
+  ): Promise<void> {
+    if (allMessages.length === 0) return;
+
+    await this.interpretationService.store({
+      channel_id: channelId,
+      type: "window_context",
+      content: windowContext.summary,
+      metadata: {
+        schema_version: 1,
+        confidence: windowContext.confidence,
+        candidate_angles: windowContext.candidate_angles,
+        open_loops: windowContext.open_loops,
+        avoid_repetition_notes: windowContext.avoid_repetition_notes,
+        participants_focus: windowContext.participants_focus,
+        from_ts: allMessages[0].ts,
+        to_ts: allMessages[allMessages.length - 1].ts,
+        message_ids: allMessages.map((message) => message.id),
+        target_message_ids: targetMessages.map((message) => message.id),
+      },
+    });
+  }
+
   private async getPromptTemplate(): Promise<string> {
     if (this.promptCache) return this.promptCache;
 
@@ -344,7 +378,9 @@ export class InterpretationWorker {
       "SELECT content FROM interpretation_prompts WHERE key = 'context_interpretation'",
     );
 
-    const template = rows[0]?.content ?? DEFAULT_INTERPRETATION_PROMPT;
+    const template = ensureWindowContextOutputContract(
+      rows[0]?.content ?? DEFAULT_INTERPRETATION_PROMPT,
+    );
     this.promptCache = template;
     return template;
   }

@@ -3,6 +3,7 @@ import type {
   Interpretation,
   InterpretationLookupInput,
   InterpretationLookupResult,
+  InterpretationLookupWindowContext,
   Message,
   StoreInterpretationInput,
 } from "../types/index.js";
@@ -24,6 +25,17 @@ interface LookupRow {
   interpretation_content: string | null;
   interpretation_metadata: Record<string, unknown> | string | null;
   interpretation_created_at: string | Date | null;
+}
+
+interface WindowContextRow {
+  id: string;
+  channel_id: string;
+  message_id: string | null;
+  thread_ts: string | null;
+  type: string;
+  content: string;
+  metadata: Record<string, unknown> | string | null;
+  created_at: string | Date;
 }
 
 export class InterpretationService {
@@ -61,6 +73,7 @@ export class InterpretationService {
         confidence_threshold: confidenceThreshold,
         coverage: buildLookupCoverage(items),
         items,
+        window_context: null,
       };
     }
 
@@ -99,6 +112,7 @@ export class InterpretationService {
       const interpretation = toInterpretation(row);
       return getInterpretationStatus(message, interpretation, confidenceThreshold);
     });
+    const windowContext = await this.lookupWindowContext(input.channel_id, timestamps);
 
     return {
       channel_id: input.channel_id,
@@ -106,7 +120,28 @@ export class InterpretationService {
       confidence_threshold: confidenceThreshold,
       coverage: buildLookupCoverage(items),
       items,
+      window_context: windowContext,
     };
+  }
+
+  private async lookupWindowContext(
+    channelId: string,
+    timestamps: string[],
+  ): Promise<InterpretationLookupWindowContext | null> {
+    const { rows } = await this.pool.query<WindowContextRow>(
+      `SELECT id, channel_id, message_id, thread_ts, type, content, metadata, created_at
+       FROM interpretations
+       WHERE channel_id = $1 AND type = 'window_context'
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [channelId],
+    );
+
+    for (const row of rows) {
+      const context = toLookupWindowContext(row, timestamps);
+      if (context) return context;
+    }
+    return null;
   }
 }
 
@@ -152,4 +187,55 @@ function toMetadata(value: Record<string, unknown> | string | null): Record<stri
     }
   }
   return {};
+}
+
+function toLookupWindowContext(
+  row: WindowContextRow,
+  timestamps: string[],
+): InterpretationLookupWindowContext | null {
+  const metadata = toMetadata(row.metadata);
+  const fromTs = typeof metadata.from_ts === "string" ? metadata.from_ts : null;
+  const toTs = typeof metadata.to_ts === "string" ? metadata.to_ts : null;
+  const confidence = typeof metadata.confidence === "number" && Number.isFinite(metadata.confidence)
+    ? metadata.confidence
+    : null;
+  const messageIds = normalizeStringList(metadata.message_ids);
+  const targetMessageIds = normalizeStringList(metadata.target_message_ids);
+
+  if (!row.content || !fromTs || !toTs || confidence === null) return null;
+  if (messageIds.length === 0 || targetMessageIds.length === 0) return null;
+  if (!overlapsRequestedRange(fromTs, toTs, timestamps)) return null;
+
+  return {
+    summary: row.content,
+    candidate_angles: normalizeStringList(metadata.candidate_angles),
+    open_loops: normalizeStringList(metadata.open_loops),
+    avoid_repetition_notes: normalizeStringList(metadata.avoid_repetition_notes),
+    participants_focus: normalizeStringList(metadata.participants_focus),
+    confidence,
+    from_ts: fromTs,
+    to_ts: toTs,
+    message_ids: messageIds,
+    target_message_ids: targetMessageIds,
+    created_at: toTimestampString(row.created_at),
+  };
+}
+
+function overlapsRequestedRange(fromTs: string, toTs: string, timestamps: string[]): boolean {
+  if (timestamps.length === 0) return true;
+  const numericTimestamps = timestamps
+    .map((ts) => Number.parseFloat(ts))
+    .filter((ts) => Number.isFinite(ts));
+  const from = Number.parseFloat(fromTs);
+  const to = Number.parseFloat(toTs);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || numericTimestamps.length === 0) {
+    return false;
+  }
+  const minTs = Math.min(...numericTimestamps);
+  const maxTs = Math.max(...numericTimestamps);
+  return to >= minTs && from <= maxTs;
+}
+
+function normalizeStringList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
 }

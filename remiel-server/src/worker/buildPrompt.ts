@@ -141,12 +141,63 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+export const WINDOW_CONTEXT_OUTPUT_CONTRACT = `## window_context 지시사항
+
+window_context는 이 메시지 묶음 전체에 대한 참고 사실입니다.
+최종 발화문을 만들지 말고, 이후 판단자가 참고할 흐름·열린 질문·반복 회피 단서만 적으십시오.
+
+- **summary**: 이 창 전체의 대화 흐름을 1-2문장으로 요약
+- **candidate_angles**: 이후 개입자가 취할 수 있는 관찰·질문 각도. 확정 발화가 아니라 선택지.
+- **open_loops**: 아직 닫히지 않은 질문, 결정, 확인 필요 사항
+- **avoid_repetition_notes**: 이미 말했거나 다시 말하면 어색한 내용
+- **participants_focus**: 참여자별 현재 관심사나 역할에 대한 짧은 메모
+- **confidence**: window_context 확신도 0.0~1.0
+
+## 출력 형식
+
+반드시 아래 JSON 객체만 출력하십시오. 다른 텍스트는 포함하지 마십시오.
+이 출력 형식은 기존 프롬프트의 배열 출력 지시보다 우선합니다.
+
+\`\`\`json
+{
+  "window_context": {
+    "summary": "이 창 전체의 흐름 요약",
+    "candidate_angles": ["개입자가 고려할 수 있는 관찰 또는 질문 각도"],
+    "open_loops": ["아직 닫히지 않은 질문 또는 결정"],
+    "avoid_repetition_notes": ["반복하면 어색한 내용"],
+    "participants_focus": ["참여자별 관심사 또는 역할 메모"],
+    "confidence": 0.85
+  },
+  "interpretations": [
+    {
+      "message_id": "uuid",
+      "addressees": [{"id": "user_id1", "name": "표시명"}],
+      "intent": "질문",
+      "summary": "요약 텍스트",
+      "confidence": 0.85,
+      "adversarial_note": null
+    }
+  ]
+}
+\`\`\``;
+
+export function ensureWindowContextOutputContract(promptTemplate: string): string {
+  if (
+    promptTemplate.includes('"window_context"') &&
+    promptTemplate.includes('"interpretations"')
+  ) {
+    return promptTemplate;
+  }
+  return `${promptTemplate.trimEnd()}\n\n${WINDOW_CONTEXT_OUTPUT_CONTRACT}`;
+}
+
 /** 기본 프롬프트 템플릿 (DB가 비어있을 때 seed) */
 export const DEFAULT_INTERPRETATION_PROMPT = `당신은 다자간 슬랙 채널 대화를 분석하는 전문 분석가입니다.
 
 채널: {{CHANNEL_NAME}}
 
 아래 대화를 읽고, 해석 대상으로 표시된 각 메시지에 대해 구조화된 해석을 생성하십시오.
+동시에 이 메시지 묶음 전체의 흐름을 요약하는 window_context를 생성하십시오.
 
 {{PRIOR_MESSAGES}}
 
@@ -178,19 +229,4 @@ export const DEFAULT_INTERPRETATION_PROMPT = `당신은 다자간 슬랙 채널 
 기존 해석이 있는 메시지의 경우, 기존 해석이 여전히 적절한지도 재검증하십시오.
 적절하다면 동일한 해석을 반환하고, 부적절하다면 수정된 해석을 반환하십시오.
 
-## 출력 형식
-
-반드시 아래 JSON 배열만 출력하십시오. 다른 텍스트는 포함하지 마십시오.
-
-\`\`\`json
-[
-  {
-    "message_id": "uuid",
-    "addressees": [{"id": "user_id1", "name": "표시명"}],
-    "intent": "질문",
-    "summary": "요약 텍스트",
-    "confidence": 0.85,
-    "adversarial_note": null
-  }
-]
-\`\`\``;
+${WINDOW_CONTEXT_OUTPUT_CONTRACT}`;

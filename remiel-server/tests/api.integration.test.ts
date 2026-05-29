@@ -503,6 +503,44 @@ describe("Interpretations", () => {
     });
   });
 
+  it("POST /api/interpretations/lookup returns overlapping window_context", async () => {
+    await inject("PATCH", "/api/channels/C500", { interpretation_enabled: true });
+    await inject("POST", "/api/interpretations", {
+      channel_id: "C500",
+      type: "window_context",
+      content: "최근 창은 배포 순서 확인 흐름이다",
+      metadata: {
+        schema_version: 1,
+        confidence: 0.86,
+        from_ts: "9999.999",
+        to_ts: "10000.100",
+        message_ids: [messageId],
+        target_message_ids: [messageId],
+        candidate_angles: ["배포 순서 확인"],
+        open_loops: ["운영 prompt row 갱신"],
+        avoid_repetition_notes: ["Unit 1 lookup 설명 반복 금지"],
+        participants_focus: ["alice가 검수를 요청함"],
+      },
+    });
+
+    const res = await inject("POST", "/api/interpretations/lookup", {
+      channel_id: "C500",
+      timestamps: ["10000.001"],
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.window_context).toMatchObject({
+      summary: "최근 창은 배포 순서 확인 흐름이다",
+      confidence: 0.86,
+      from_ts: "9999.999",
+      to_ts: "10000.100",
+      message_ids: [messageId],
+      target_message_ids: [messageId],
+      candidate_angles: ["배포 순서 확인"],
+    });
+  });
+
   it("POST /api/interpretations/lookup preserves input order and reports unresolved statuses", async () => {
     await inject("PATCH", "/api/channels/C500", { interpretation_enabled: true });
     const lowRes = await inject("POST", "/api/messages", {
@@ -587,6 +625,7 @@ describe("Interpretations", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.payload);
     expect(body.channel_enabled).toBe(false);
+    expect(body.window_context).toBeNull();
     expect(body.items.map((item: { status: string }) => item.status)).toEqual([
       "disabled_channel",
       "disabled_channel",

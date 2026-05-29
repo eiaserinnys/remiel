@@ -176,6 +176,16 @@ export interface ContextInterpretation {
   adversarial_note: string | null;
 }
 
+/** 최근 대화 묶음(window)에 대한 advisory 해석 */
+export interface WindowContext {
+  summary: string;
+  candidate_angles: string[];
+  open_loops: string[];
+  avoid_repetition_notes: string[];
+  participants_focus: string[];
+  confidence: number;
+}
+
 export type InterpretationLookupStatus =
   | "ready"
   | "disabled_channel"
@@ -229,10 +239,19 @@ export interface InterpretationLookupCoverage {
   invalid_metadata: number;
 }
 
+export interface InterpretationLookupWindowContext extends WindowContext {
+  from_ts: string;
+  to_ts: string;
+  message_ids: string[];
+  target_message_ids: string[];
+  created_at: string;
+}
+
 export interface InterpretationLookupResult {
   channel_id: string;
   channel_enabled: boolean;
   confidence_threshold: number;
   coverage: InterpretationLookupCoverage;
   items: InterpretationLookupItem[];
+  window_context: InterpretationLookupWindowContext | null;
 }
