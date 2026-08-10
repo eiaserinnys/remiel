@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { createSlackApp } from "./slack.js";
@@ -11,6 +11,17 @@ import { UserResolver } from "./user-resolver.js";
 import { HANIEL_READY_CONDITION, READINESS_MARKER } from "./readiness.js";
 
 export { HANIEL_READY_CONDITION, READINESS_MARKER } from "./readiness.js";
+
+export function isMainModule(
+  argvPath: string,
+  moduleUrl: string = import.meta.url,
+): boolean {
+  try {
+    return realpathSync(argvPath) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
 
 export interface BootstrapDependencies {
   createSlackApp: typeof createSlackApp;
@@ -94,7 +105,7 @@ export async function main(
   console.log(READINESS_MARKER);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (process.argv[1] && isMainModule(process.argv[1])) {
   main().catch((error) => {
     console.error(`[Remiel] Fatal error:`, error);
     process.exit(1);

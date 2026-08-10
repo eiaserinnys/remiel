@@ -1,18 +1,25 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
+import { isMainModule } from "../src/index.js";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const botRoot = resolve(testDir, "..");
 const root = resolve(botRoot, "..");
 
-function runBootstrapProbe() {
+function runBootstrapProbe(suppressMarker = false) {
   const entryUrl = pathToFileURL(resolve(botRoot, "src/index.ts")).href;
   const probe = `
     import { main, READINESS_MARKER, HANIEL_READY_CONDITION } from ${JSON.stringify(entryUrl)};
+    const productLog = console.log.bind(console);
+    if (${JSON.stringify(suppressMarker)}) {
+      console.log = (...values) => {
+        if (values[0] !== READINESS_MARKER) productLog(...values);
+      };
+    }
     await main({
       createSlackApp: async () => {
         console.log("HANDLERS_REGISTERED");
@@ -23,8 +30,8 @@ function runBootstrapProbe() {
       },
     });
     console.log("READINESS_CONTRACT=" + JSON.stringify({
-      marker: READINESS_MARKER,
-      condition: HANIEL_READY_CONDITION,
+      markerHex: Buffer.from(READINESS_MARKER, "utf8").toString("hex"),
+      conditionHex: Buffer.from(HANIEL_READY_CONDITION, "utf8").toString("hex"),
     }));
     setTimeout(() => process.exit(0), 0);
   `;
@@ -46,28 +53,43 @@ function runBootstrapProbe() {
   );
 }
 
+function assertBootstrapContract(result: ReturnType<typeof runBootstrapProbe>) {
+  const observed = `${result.stdout}${result.stderr}`;
+  expect(result.status, observed).toBe(0);
+  const contractMatch = /^READINESS_CONTRACT=(.*)$/m.exec(result.stdout);
+  expect(contractMatch, observed).not.toBeNull();
+  const encoded = JSON.parse(contractMatch![1]) as {
+    markerHex: string;
+    conditionHex: string;
+  };
+  const marker = Buffer.from(encoded.markerHex, "hex").toString("utf8");
+  const condition = Buffer.from(encoded.conditionHex, "hex").toString("utf8");
+  expect(condition.startsWith("log:")).toBe(true);
+  expect(new RegExp(condition.slice(4)).test(marker)).toBe(true);
+  expect(observed).toContain(marker);
+  expect(result.stdout.indexOf("HANDLERS_REGISTERED")).toBeLessThan(
+    result.stdout.indexOf("SOCKET_CONNECTED"),
+  );
+  expect(result.stdout.indexOf("SOCKET_CONNECTED")).toBeLessThan(
+    result.stdout.indexOf(marker),
+  );
+  expect(result.stderr).not.toContain("Fatal error");
+}
+
 describe("Haniel readiness marker contract", () => {
   it("observes the product bootstrap after handlers and Socket Mode start", () => {
-    const result = runBootstrapProbe();
-    const observed = `${result.stdout}${result.stderr}`;
+    assertBootstrapContract(runBootstrapProbe());
+  });
 
-    expect(result.status, observed).toBe(0);
-    const contractMatch = /^READINESS_CONTRACT=(.*)$/m.exec(result.stdout);
-    expect(contractMatch, observed).not.toBeNull();
-    const contract = JSON.parse(contractMatch![1]) as {
-      marker: string;
-      condition: string;
-    };
-    expect(contract.condition.startsWith("log:")).toBe(true);
-    expect(new RegExp(contract.condition.slice(4)).test(contract.marker)).toBe(true);
-    expect(observed).toContain(contract.marker);
-    expect(result.stdout.indexOf("HANDLERS_REGISTERED")).toBeLessThan(
-      result.stdout.indexOf("SOCKET_CONNECTED"),
-    );
-    expect(result.stdout.indexOf("SOCKET_CONNECTED")).toBeLessThan(
-      result.stdout.indexOf(contract.marker),
-    );
-    expect(result.stderr).not.toContain("Fatal error");
+  it("fails the contract when product marker emission is suppressed", () => {
+    expect(() => assertBootstrapContract(runBootstrapProbe(true))).toThrow();
+  });
+
+  it("recognizes a symlink argv path as the ESM entrypoint", () => {
+    const directory = mkdtempSync(join(tmpdir(), "remiel-entrypoint-"));
+    const link = join(directory, "remiel.ts");
+    symlinkSync(resolve(botRoot, "src/index.ts"), link, "file");
+    expect(isMainModule(link)).toBe(true);
   });
 
   it("runs CI for every readiness contract input with minimum permissions", () => {
