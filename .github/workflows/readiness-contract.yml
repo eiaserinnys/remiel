@@ -1,0 +1,39 @@
+name: Readiness contract
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - remiel-bot/package.json
+      - remiel-bot/src/index.ts
+      - remiel-bot/src/slack.ts
+      - remiel-bot/tests/readiness-contract.test.ts
+      - .github/workflows/readiness-contract.yml
+  push:
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - remiel-bot/package.json
+      - remiel-bot/src/index.ts
+      - remiel-bot/src/slack.ts
+      - remiel-bot/tests/readiness-contract.test.ts
+      - .github/workflows/readiness-contract.yml
+  workflow_dispatch:
+
+jobs:
+  readiness-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter remiel-bot exec vitest run tests/readiness-contract.test.ts
