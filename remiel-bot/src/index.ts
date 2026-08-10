@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
 import { createSlackApp } from "./slack.js";
 import { TimingLogger } from "./timing.js";
@@ -6,8 +8,19 @@ import { DelegationManager } from "./delegation.js";
 import { DeepThinkManager } from "./deepthink.js";
 import { MessageForwarder } from "./forwarder.js";
 import { UserResolver } from "./user-resolver.js";
+import { HANIEL_READY_CONDITION, READINESS_MARKER } from "./readiness.js";
 
-async function main() {
+export { HANIEL_READY_CONDITION, READINESS_MARKER } from "./readiness.js";
+
+export interface BootstrapDependencies {
+  createSlackApp: typeof createSlackApp;
+}
+
+const DEFAULT_BOOTSTRAP_DEPENDENCIES: BootstrapDependencies = { createSlackApp };
+
+export async function main(
+  dependencies: BootstrapDependencies = DEFAULT_BOOTSTRAP_DEPENDENCIES,
+) {
   const config = loadConfig();
 
   console.log(`[Remiel] Starting...`);
@@ -52,7 +65,13 @@ async function main() {
     console.log(`[Remiel] Forwarder disabled (REMIEL_SERVER_URL/API_KEY not set)`);
   }
 
-  const app = await createSlackApp(config, timingLogger, delegationManager, deepThinkManager, forwarder);
+  const app = await dependencies.createSlackApp(
+    config,
+    timingLogger,
+    delegationManager,
+    deepThinkManager,
+    forwarder,
+  );
   deepThinkManager.setApp(app);
   delegationManager?.setApp(app);
 
@@ -72,10 +91,12 @@ async function main() {
       .catch((err) => console.error("[Forwarder] Channel registration failed:", err));
   }
 
-  console.log(`[Remiel] Bot is running!`);
+  console.log(READINESS_MARKER);
 }
 
-main().catch((error) => {
-  console.error(`[Remiel] Fatal error:`, error);
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main().catch((error) => {
+    console.error(`[Remiel] Fatal error:`, error);
+    process.exit(1);
+  });
+}

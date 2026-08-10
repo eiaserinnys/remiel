@@ -8,6 +8,7 @@ on:
       - pnpm-workspace.yaml
       - remiel-bot/package.json
       - remiel-bot/src/index.ts
+      - remiel-bot/src/readiness.ts
       - remiel-bot/src/slack.ts
       - remiel-bot/tests/readiness-contract.test.ts
       - .github/workflows/readiness-contract.yml
@@ -18,10 +19,14 @@ on:
       - pnpm-workspace.yaml
       - remiel-bot/package.json
       - remiel-bot/src/index.ts
+      - remiel-bot/src/readiness.ts
       - remiel-bot/src/slack.ts
       - remiel-bot/tests/readiness-contract.test.ts
       - .github/workflows/readiness-contract.yml
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   readiness-contract:
