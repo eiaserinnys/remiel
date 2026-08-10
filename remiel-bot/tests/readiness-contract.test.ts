@@ -9,6 +9,14 @@ import { isMainModule } from "../src/index.js";
 const testDir = dirname(fileURLToPath(import.meta.url));
 const botRoot = resolve(testDir, "..");
 const root = resolve(botRoot, "..");
+const readinessContract = JSON.parse(
+  readFileSync(resolve(root, "readiness-contract.json"), "utf8"),
+) as {
+  schema_version: string;
+  service: string;
+  marker: string;
+  ready: string;
+};
 
 function runBootstrapProbe(suppressMarker = false) {
   const entryUrl = pathToFileURL(resolve(botRoot, "src/index.ts")).href;
@@ -77,6 +85,18 @@ function assertBootstrapContract(result: ReturnType<typeof runBootstrapProbe>) {
 }
 
 describe("Haniel readiness marker contract", () => {
+  it("publishes a machine-readable contract independent of source constants", async () => {
+    const { READINESS_MARKER, HANIEL_READY_CONDITION } = await import(
+      "../src/readiness.js"
+    );
+    expect(readinessContract).toEqual({
+      schema_version: "haniel.readiness-contract.v1",
+      service: "remiel",
+      marker: READINESS_MARKER,
+      ready: HANIEL_READY_CONDITION,
+    });
+  });
+
   it("observes the product bootstrap after handlers and Socket Mode start", () => {
     assertBootstrapContract(runBootstrapProbe());
   });
@@ -98,6 +118,7 @@ describe("Haniel readiness marker contract", () => {
       "utf8",
     );
     expect(workflow).toContain("permissions:\n  contents: read");
+    expect(workflow).toContain("schedule:");
     for (const path of [
       "package.json",
       "pnpm-lock.yaml",
@@ -107,6 +128,7 @@ describe("Haniel readiness marker contract", () => {
       "remiel-bot/src/readiness.ts",
       "remiel-bot/tests/readiness-contract.test.ts",
       ".github/workflows/readiness-contract.yml",
+      "readiness-contract.json",
     ]) {
       expect(workflow).toContain(path);
     }
