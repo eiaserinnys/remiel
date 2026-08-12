@@ -216,10 +216,12 @@ export class InterpretationWorker {
 
       // 소울스트림 세션 실행
       let responseText: string;
+      let responseSessionId: string | null = null;
       try {
         const nodeId = this.getEffectiveNodeId();
         const result = await this.soulstream.run(prompt, { nodeId });
         responseText = result.text;
+        responseSessionId = result.sessionId;
       } catch (err) {
         const errMsg = String(err);
         console.error(
@@ -246,8 +248,9 @@ export class InterpretationWorker {
       } catch (err) {
         if (err instanceof ParseError) {
           console.error(
-            `[InterpretationWorker] Parse failed for channel ${channelId}:`,
-            err.message,
+            `[InterpretationWorker] Parse failed for channel ${channelId}` +
+              ` (session ${responseSessionId ?? "unknown"}): ${err.message}` +
+              ` raw=${JSON.stringify(err.raw)}`,
           );
           // raw 응답을 별도 저장
           await this.storeRawFallback(channelId, err.raw);

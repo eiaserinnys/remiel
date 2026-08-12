@@ -90,8 +90,9 @@ export class SoulstreamClient {
 
   /**
    * SSE 이벤트 스트림에서 텍스트를 축적한다.
-   * text_delta → 텍스트 축적
-   * complete → 종료
+   * text_delta → 라이브 텍스트 축적
+   * assistant_message/result → 최종 텍스트 보관
+   * complete → complete.result 또는 보관한 최종 텍스트로 종료
    * error → 에러 throw
    */
   private async streamEvents(sessionId: string): Promise<SoulstreamSessionResult> {
@@ -127,6 +128,7 @@ export class SoulstreamClient {
     const decoder = new TextDecoder();
     let buffer = "";
     let accumulated = "";
+    let finalText: string | null = null;
     let currentEvent = "";
 
     while (true) {
@@ -149,8 +151,10 @@ export class SoulstreamClient {
           const result = parseSSEData(currentEvent, dataStr);
           if (result.type === "text") {
             accumulated += result.text;
+          } else if (result.type === "final") {
+            finalText = result.text;
           } else if (result.type === "complete") {
-            return accumulated;
+            return result.text ?? finalText ?? accumulated;
           } else if (result.type === "error") {
             throw new Error(`Soulstream session ${sessionId} error: ${result.message}`);
           }
@@ -162,14 +166,15 @@ export class SoulstreamClient {
     }
 
     // 스트림이 complete 없이 끝난 경우
-    return accumulated;
+    return finalText ?? accumulated;
   }
 }
 
 /** SSE data 파싱 결과 */
 export type SSEParseResult =
   | { type: "text"; text: string }
-  | { type: "complete" }
+  | { type: "final"; text: string }
+  | { type: "complete"; text?: string }
   | { type: "error"; message: string }
   | { type: "ignored" };
 
@@ -185,8 +190,22 @@ export function parseSSEData(event: string, dataStr: string): SSEParseResult {
       return { type: "text", text: data.text ?? data.delta ?? "" };
     }
 
+    if (event === "assistant_message" || data.type === "assistant_message") {
+      return typeof data.content === "string"
+        ? { type: "final", text: data.content }
+        : { type: "ignored" };
+    }
+
+    if (event === "result" || data.type === "result") {
+      return typeof data.output === "string"
+        ? { type: "final", text: data.output }
+        : { type: "ignored" };
+    }
+
     if (event === "complete" || data.type === "complete") {
-      return { type: "complete" };
+      return typeof data.result === "string"
+        ? { type: "complete", text: data.result }
+        : { type: "complete" };
     }
 
     if (event === "error" || data.type === "error") {
