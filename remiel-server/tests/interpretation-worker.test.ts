@@ -34,6 +34,24 @@ describe("parseSSEData", () => {
     expect(result).toEqual({ type: "complete" });
   });
 
+  it("assistant_message content를 최종 텍스트로 인식한다", () => {
+    const result = parseSSEData(
+      "assistant_message",
+      '{"type":"assistant_message","content":"final answer"}',
+    );
+    expect(result).toEqual({ type: "final", text: "final answer" });
+  });
+
+  it("result output을 최종 텍스트로 인식한다", () => {
+    const result = parseSSEData("result", '{"type":"result","output":"final answer"}');
+    expect(result).toEqual({ type: "final", text: "final answer" });
+  });
+
+  it("complete result를 종료 시 최종 텍스트로 인식한다", () => {
+    const result = parseSSEData("complete", '{"type":"complete","result":"final answer"}');
+    expect(result).toEqual({ type: "complete", text: "final answer" });
+  });
+
   it("error 이벤트에서 메시지를 추출한다", () => {
     const result = parseSSEData("error", '{"type":"error","message":"fail"}');
     expect(result).toEqual({ type: "error", message: "fail" });
@@ -260,6 +278,17 @@ Some trailing text`;
     expect(interpretations[0].adversarial_note).toBe("수신자 불명확");
   });
 
+  it("앞뒤 산문 사이의 베어 JSON object를 파싱한다", () => {
+    const text = `요청하신 해석입니다.
+{"window_context":{"summary":"창 요약"},"interpretations":[{"message_id":"m1","addressees":[],"intent":"정보 공유","summary":"핵심을 공유했다","confidence":0.8}]}
+이상입니다.`;
+
+    const { interpretations, window_context } = parseResponse(text);
+    expect(interpretations).toHaveLength(1);
+    expect(interpretations[0].message_id).toBe("m1");
+    expect(window_context?.summary).toBe("창 요약");
+  });
+
   it("message_id가 없는 항목은 무시한다", () => {
     const text =
       '[{"addressees":[],"intent":"질문","summary":"test","confidence":0.5},{"message_id":"m2","addressees":[],"intent":"답변","summary":"ok","confidence":0.8}]';
@@ -269,8 +298,27 @@ Some trailing text`;
     expect(interpretations[0].message_id).toBe("m2");
   });
 
-  it("JSON이 없으면 ParseError를 던진다", () => {
-    expect(() => parseResponse("no json here")).toThrow(ParseError);
+  it("빈 응답이면 raw를 보존한 ParseError를 던진다", () => {
+    try {
+      parseResponse("");
+      throw new Error("ParseError가 필요합니다");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ParseError);
+      expect((err as ParseError).message).toBe("JSON payload를 찾을 수 없습니다");
+      expect((err as ParseError).raw).toBe("");
+    }
+  });
+
+  it("JSON이 없는 산문이면 raw를 보존한 ParseError를 던진다", () => {
+    const raw = "JSON 대신 산문만 반환했습니다.";
+    try {
+      parseResponse(raw);
+      throw new Error("ParseError가 필요합니다");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ParseError);
+      expect((err as ParseError).message).toBe("JSON payload를 찾을 수 없습니다");
+      expect((err as ParseError).raw).toBe(raw);
+    }
   });
 
   it("빈 배열이면 ParseError를 던진다", () => {
